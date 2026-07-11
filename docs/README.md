@@ -12,6 +12,7 @@
 | Documento | O que você encontra |
 | :-------- | :------------------ |
 | 📄 **[README principal](../README.md)** | Visão geral, arquitetura, modelo de domínio, stack e guia de _getting started_ |
+| 🧱 **[fase-0/](./fase-0/README.md)** | Artefatos de **planejamento e design** (Fase 0): escopo, requisitos, casos de uso, DER, UML, eventos de negócio e arquitetura |
 | 🗺️ **[ROADMAP.md](./ROADMAP.md)** | Plano de evolução detalhado das **18 fases**, agrupadas em 7 etapas, com objetivos, entregáveis, decisões-chave e mapa de dependências |
 | 📜 **[CHANGELOG.md](./CHANGELOG.md)** | Histórico de versões planejadas (fase → versão, `0.1.0` → `1.0.0`) no formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) + [SemVer](https://semver.org/lang/pt-BR/) |
 | 📋 **[openspec/changes/](../openspec/changes/)** | Especificações _spec-driven_ completas: `proposal.md`, `design.md`, `tasks.md` e _specs_ por capacidade |
