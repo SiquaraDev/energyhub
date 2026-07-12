@@ -1,9 +1,10 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–12)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–13)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 12 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+**Fases 2 a 13 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
 Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
-(RabbitMQ & Kafka), Busca (Elasticsearch) e Observabilidade (Prometheus/Grafana)** (versão `0.12.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+(RabbitMQ & Kafka), Busca (Elasticsearch), Observabilidade (Prometheus/Grafana) e a Suíte de Testes
+com _quality gate_ de cobertura** (versão `0.13.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -13,8 +14,9 @@ routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, R
 Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, o **cache Redis**
 (fastapi-cache2 + invalidação) da Fase 9, a **camada de mensageria assíncrona** (produtores/consumidores
 RabbitMQ + Kafka) da Fase 10, o **subsistema de busca** (Elasticsearch + full-text/filtros) da Fase 11,
-a **camada de observabilidade** (métricas Prometheus + Grafana/Alertmanager) da Fase 12, suas
-**assinaturas reais** e como estendê-las nas próximas fases.
+a **camada de observabilidade** (métricas Prometheus + Grafana/Alertmanager) da Fase 12, a **suíte de
+testes automatizados** (unitários + componente + integração, com gate de 80% de cobertura) da Fase 13,
+suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -970,7 +972,47 @@ source Prometheus + 3 dashboards. As regras (`HighRequestLatency` p95>1s, `HighE
 
 ---
 
-## 🚀 18. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🧪 18. Estratégia de Testes (Fase 13)
+
+A suíte (em `energyhub/tests/`, espelhando a árvore de módulos) roda com **um comando** e aplica um
+**_quality gate_ de 80%** embutido no `addopts` do `pyproject.toml` (`--cov=energyhub
+--cov-fail-under=80`), de modo que **toda** invocação — local ou CI — enforça o mesmo piso. São **três
+camadas**, dos testes mais rápidos/isolados aos mais realistas:
+
+| Camada | O que cobre | Como | Precisa de Docker? |
+| :----- | :---------- | :--- | :----------------: |
+| **Unitário** | Os 15 serviços de aplicação (regras de negócio) + value objects, validadores, utilitários, paginação, exception handlers, `JwtService`/hashing, métricas | Serviço instanciado com colaboradores `AsyncMock`/`Mock`; caminhos felizes **e** de exceção de domínio | Não |
+| **Componente** | Os 13 routers (roteamento, status HTTP, serialização, _guards_ RBAC) | `TestClient` sobre um app mínimo + `dependency_overrides`: `get_current_user` (usuário com todas as permissões) e os provedores de serviço mockados | Não |
+| **Integração** | Repositórios contra SQL real + fluxo de API ponta-a-ponta | Repositório sobre `PostgresContainer` (Testcontainers) com isolamento por rollback; API via `TestClient` com **login JWT real** → `POST /clients` → `201` | **Sim** |
+
+**Decisões-chave:**
+
+- **`AsyncMock` para colaboradores async, `Mock` para síncronos** (`pytest-asyncio` em modo `auto`
+  coleta `async def test_...` sem marcador por teste). Awaitar um `Mock` comum levantaria erro.
+- **Cache em memória por teste.** Os métodos de serviço decorados com `@cache` (fastapi-cache2) e o
+  `invalidate_cache` das escritas exigem um backend inicializado; um `conftest.py` inicializa um
+  `InMemoryBackend` **novo por teste** (o `_store` é atributo de classe → limpo explicitamente), tornando
+  os serviços testáveis sem Redis e sem vazamento de estado entre testes.
+- **Override apenas de `get_current_user`.** Como `require_permission(perm)` resolve o usuário atual via
+  `get_current_user` e checa `has_permission`, um único override (usuário que concede tudo) destrava tanto
+  a dependência de grupo quanto os _guards_ por rota — sem token nem banco.
+- **Isolamento e reprodutibilidade.** Testcontainers dá um Postgres real e efêmero (SQL/constraints
+  verdadeiros, ao contrário de SQLite); `docker-compose.test.yml` oferece PG/Redis/RabbitMQ em portas
+  não-padrão (**5433/6380/5673**) para runs manuais, sem colidir com o ambiente de desenvolvimento.
+- **Gate _single-sourced_.** O limiar vive no `addopts` (e em `[tool.coverage.report] fail_under=80`),
+  então não há comando separado a lembrar; `main.py`/`__init__.py`/`tests` são omitidos para manter o
+  percentual significativo. Para iterar sem o gate: `pytest --no-cov`.
+
+**Execução no Windows.** O Postgres **não** é acessível host→container (peculiaridade do proxy do Docker
+Desktop) — os demais serviços conectam do host. Por isso a **camada de integração roda dentro de um
+container** na rede do compose (os testes marcados `integration` são **pulados automaticamente** no host
+via _skip-guards_), enquanto unitários e componente rodam no host. Resultado verificado: **273 testes
+passam no host** (cobertura **85%**, integração pulada) e **279 passam in-container** (cobertura **87%**,
+gate satisfeito). A estabilização não revelou defeito de aplicação — só ajustes de _harness_.
+
+---
+
+## 🚀 19. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -1005,7 +1047,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 19. Referências
+## 📚 20. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

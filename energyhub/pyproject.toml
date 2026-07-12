@@ -47,6 +47,8 @@ dev = [
     "pytest (>=9.1.1,<10.0.0)",
     "pytest-asyncio (>=1.4.0,<2.0.0)",
     "pytest-cov (>=7.1.0,<8.0.0)",
+    "pytest-mock (>=3.15.1,<4.0.0)",
+    "testcontainers (>=4.9.0,<5.0.0)",
     "isort (>=8.0.1,<9.0.0)",
     "httpx (>=0.28.1,<0.29.0)"
 ]
@@ -121,5 +123,33 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["N818"]
 
 [tool.pytest.ini_options]
+# `asyncio_mode = "auto"` coleta `async def test_...` como corrotinas sem marcador por teste.
 asyncio_mode = "auto"
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Cobertura embutida em `addopts`: todo `pytest` (local e CI) aplica o mesmo gate de 80% (Fase 13).
+# A camada de integração (Postgres/Redis/RabbitMQ via Docker) fica sob o marcador `integration`;
+# testes unitários rodam sem Docker. Para iterar sem o gate: `pytest --no-cov`.
+addopts = "--import-mode=importlib --cov=energyhub --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+markers = [
+    "integration: exige infraestrutura Docker (Postgres/Redis/RabbitMQ); pulado quando indisponível",
+]
+
+# --- Cobertura (Fase 13) ---------------------------------------------------------------------
+# Mede apenas o pacote `energyhub`, omitindo o que não carrega lógica de negócio: marcadores de
+# pacote (`__init__.py`), o entrypoint de composição (`main.py`) e os próprios testes.
+[tool.coverage.run]
+source = ["energyhub"]
+branch = true
+omit = [
+    "*/__init__.py",
+    "*/main.py",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_empty = true

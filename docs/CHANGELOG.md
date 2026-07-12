@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–12** (`0.0.0` → `0.12.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.13.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–13** (`0.0.0` → `0.13.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.14.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **82 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **89 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -36,6 +36,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Mensageria assíncrona (Fase 10):** brokers **RabbitMQ** (workflows) e **Kafka** + Zookeeper (streams) no compose; `RabbitMQConfig`/`setup_queues` (11 filas duráveis) e `KafkaConfig`/`create_topics` (4 tópicos); `EventProducer` base + `UserEventProducer`/`ClientEventProducer` (RabbitMQ) e `KafkaEventProducer`/`KafkaEventConsumer` (JSON com chave); consumidores `NotificationConsumer` e `AuditConsumer` (ack manual, `prefetch_count=1`); publicação pós-commit nos serviços (não-bloqueante) e `MessagePublishingException`.
 - **Busca full-text (Fase 11):** serviço **Elasticsearch** (single-node, healthcheck, volume) no compose + deps `elasticsearch`/`elasticsearch-dsl`; `ElasticsearchConfig` (client factory + `create_indices` idempotente); documentos `ClientDocument`/`ContractDocument` (keyword/text, analisador português, `from_entity`); repositórios de busca (index/delete/finders); `ClientSearchService` (`multi_match` com boosting + `fuzziness='AUTO'`, filtro por localização, busca avançada com `SearchFilter`/`FilterCondition` + `min_score`); router `/api/v1/search/clients` (full-text, location, advanced).
 - **Observabilidade (Fase 12):** instrumentação Prometheus (`/metrics` via `prometheus-fastapi-instrumentator`, métricas HTTP `fastapi_*` + `application_info`); `MetricsConfig`/`BusinessMetrics` (`client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active`, `operation_duration_seconds`) com serviços instrumentados; recursos do host via `psutil`; stack Prometheus + Grafana (data source + 3 dashboards) + Alertmanager (regras de latência/erro/memória) no compose.
+- **Suíte de testes e gate de cobertura (Fase 13):** toolchain `pytest`/`pytest-asyncio`/`pytest-mock`/`pytest-cov`/`testcontainers` (grupo `dev`) e `[tool.pytest.ini_options]` com gate embutido (`--cov=energyhub --cov-fail-under=80`); testes unitários dos 15 serviços com colaboradores `AsyncMock`, testes de componente dos 13 routers via `TestClient`, e integração (repositórios via `PostgresContainer` + API via `TestClient` com JWT real); `docker-compose.test.yml` (PG/Redis/RabbitMQ em 5433/6380/5673); cobertura **87% in-container** (85% no host, com a integração pulada).
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -106,17 +107,24 @@ orquestrada por Docker Compose (boot com um único comando).
 
 ---
 
-## [0.13.0] — 🔮 Planejado · _Fase 13 · Testes & Cobertura_
+## [0.13.0] — 2026-07-12 · ✅ Lançado · _Fase 13 · Testes & Cobertura_
 
-Suíte de testes determinística (unitários + integração) com _quality gate_ de **80% de cobertura**.
+Suíte de testes determinística (unitários + componente + integração) com _quality gate_ de **80% de cobertura**.
 
 ### Adicionado
-- Ferramentas de teste (`pytest`, `pytest-mock`, `pytest-asyncio`, `pytest-cov`, `testcontainers`) e configuração `[tool.pytest.ini_options]`.
-- Testes unitários dos serviços da camada de aplicação com colaboradores _mockados_ (caminhos felizes e de exceção de domínio).
-- Fixtures e _test doubles_ compartilhados em `conftest.py`.
-- Testes de integração: repositórios contra `PostgresContainer` (Testcontainers) e API via `TestClient` com login/JWT reais.
+- Ferramentas de teste (`pytest`, `pytest-mock`, `pytest-asyncio`, `pytest-cov`, `testcontainers`) no grupo `dev` e `[tool.pytest.ini_options]` (modo asyncio `auto`, `testpaths`, padrões de descoberta, marcador `integration`, `addopts` com o gate embutido e `--import-mode=importlib`).
+- Testes **unitários** dos 15 serviços da camada de aplicação com colaboradores `AsyncMock` (caminhos felizes e de exceção de domínio, convenção `test_should_..._when_...`); mais value objects, validadores, utilitários, `PageRequest`/`PageResponse`, exception handlers, `JwtService`/hashing e métricas.
+- Testes de **componente** dos 13 routers via `TestClient` + `dependency_overrides` (override de `get_current_user`), cobrindo roteamento, status HTTP, serialização e os _guards_ RBAC sem infraestrutura.
+- Testes de **integração**: repositórios contra `PostgresContainer` (Testcontainers, com _fallback_ para `EH_TEST_DATABASE_URL`) e API via `TestClient` com login/JWT reais; marcados `integration` e pulados sem Docker.
+- Fixtures e _test doubles_ compartilhados em `conftest.py` (doubles `AsyncMock`, cache em memória por teste, harness de router, fixtures de sessão/`TestClient` skip-guarded).
 - `docker-compose.test.yml` (PostgreSQL, Redis e RabbitMQ em portas não padrão 5433/6380/5673).
-- _Quality gate_ de cobertura (`fail_under=80`, `--cov-fail-under=80`) com relatórios HTML e de terminal.
+- _Quality gate_ de cobertura (`[tool.coverage.run]`/`[tool.coverage.report]` com `fail_under=80` + `--cov-fail-under=80` no `addopts`) com relatórios HTML e de terminal.
+
+### Corrigido
+- Removidos do versionamento 2 `__pycache__/*.pyc` rastreados por engano em `src/energyhub/`.
+
+### Notas
+- **Cobertura 87% in-container** (279 testes) / **85% no host** (273 testes, integração pulada). No Windows, o Postgres não é acessível host→container, então a camada de integração roda dentro de um container na rede do compose; unitários/componente rodam no host. A estabilização não revelou defeito de aplicação — apenas ajustes de _harness_ (isolamento de cache em memória; `raise_server_exceptions=False` no `TestClient`).
 
 ---
 

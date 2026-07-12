@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 12 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 13 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -66,8 +66,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > consome fora do caminho da requisição (`NotificationConsumer`, `AuditConsumer`), um **subsistema
 > de busca** (**Elasticsearch**) oferece full-text com relevância/fuzziness e filtros compostos em
 > `/api/v1/search/clients`, e uma **camada de observabilidade** expõe métricas Prometheus em
-> `/metrics` (HTTP + negócio + recursos) com **Prometheus/Grafana/Alertmanager** (dashboards e alertas).
-> **Próxima: Fase 13** (suíte de testes e _quality gate_ de cobertura). Consulte o
+> `/metrics` (HTTP + negócio + recursos) com **Prometheus/Grafana/Alertmanager** (dashboards e alertas),
+> e uma **suíte de testes automatizados** (pytest) com **_quality gate_ de 80% de cobertura** guarda o
+> comportamento — unitários dos serviços, testes de componente dos routers e integração (repositórios
+> via Testcontainers + API via `TestClient`).
+> **Próxima: Fase 14** (containerização e orquestração). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -353,19 +356,25 @@ Sem token → **401**; token válido sem a permissão exigida pelo endpoint → 
 
 ## 🧪 Testes
 
-A **primeira estrutura de testes já existe**: [`tests/conftest.py`](energyhub/tests/conftest.py)
-com uma _fixture_ `TestClient` e [`tests/test_base_entity.py`](energyhub/tests/test_base_entity.py)
-(regressão da `BaseEntity`). A **suíte completa** e a **cobertura mínima de 80%** são estabelecidas
-na **Fase 13**:
+A **suíte de testes automatizados** (Fase 13) roda com um único comando e aplica um **_quality gate_
+de 80% de cobertura** embutido no `addopts` (todo `pytest` — local ou CI — enforça o mesmo piso):
 
 ```bash
 cd energyhub
-poetry run pytest                 # roda unitários + integração
-poetry run pytest --cov           # com relatório de cobertura
+poetry run pytest                 # unitários + componente + integração, com o gate de 80%
+poetry run pytest --no-cov        # para iterar sem o gate de cobertura
 ```
 
-- **Unitários** — serviços da camada de aplicação com colaboradores _mockados_.
-- **Integração** — repositórios contra `PostgresContainer` (Testcontainers) e API via `TestClient` com JWT real.
+- **Unitários** — serviços da camada de aplicação com colaboradores _mockados_ (`AsyncMock`), cobrindo
+  caminhos felizes e de exceção de domínio; mais value objects, validadores, handlers e métricas.
+- **Componente** — routers via `TestClient` com serviços mockados e `get_current_user` sobrescrito
+  (exercita roteamento, status HTTP, serialização e os _guards_ RBAC sem infraestrutura).
+- **Integração** — repositórios contra `PostgresContainer` (Testcontainers) e API via `TestClient`
+  com login JWT real. Exigem Docker; os unitários/componente rodam sem ele.
+
+> **Windows:** o Postgres não é acessível host→container (peculiaridade do Docker Desktop), então a
+> camada de integração roda **dentro de um container** na rede do compose (os testes marcados
+> `integration` são pulados automaticamente no host). Os testes unitários/componente rodam no host.
 
 ---
 

@@ -1,0 +1,57 @@
+# Infraestrutura isolada para a suíte de testes (Fase 13).
+#
+# PostgreSQL, Redis e RabbitMQ em portas de HOST não-padrão (5433/6380/5673) para não colidir com
+# os serviços de desenvolvimento (5432/6379/5672) — assim a suíte nunca toca um datastore de
+# desenvolvimento/produção. Suba com:
+#
+#     docker compose -f docker-compose.test.yml up -d
+#
+# e aponte a suíte para cá com as variáveis lidas pela aplicação (o conftest já usa estes valores
+# como padrão): DATABASE_URL / REDIS_URL / RABBITMQ_URL. Efêmero: volumes com sufixo `_test`.
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: energyhub-postgres-test
+    environment:
+      POSTGRES_DB: energyhub_test
+      POSTGRES_USER: energyhub
+      POSTGRES_PASSWORD: energyhub123
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U energyhub -d energyhub_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: energyhub-redis-test
+    command: ["redis-server", "--save", ""]  # sem persistência (efêmero)
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq-test:
+    image: rabbitmq:3-management-alpine
+    container_name: energyhub-rabbitmq-test
+    environment:
+      RABBITMQ_DEFAULT_USER: energyhub
+      RABBITMQ_DEFAULT_PASS: energyhub123
+    ports:
+      - "5673:5672"     # AMQP
+      - "15673:15672"   # UI de gerenciamento
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_test_data:

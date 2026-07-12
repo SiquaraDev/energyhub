@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 12
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.12.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 13 — Suíte de Testes e
-> _Quality Gate_ de Cobertura**. As **Fases 13–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 13
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.13.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 14 — Containerização e Orquestração**.
+> As **Fases 14–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -315,13 +315,27 @@ carregadas e roteadas ao Alertmanager, data source + dashboards do Grafana rende
 
 ## 🧪 Etapa 5 — Qualidade & Empacotamento
 
-### 📋 Fase 13 — Suíte de Testes Automatizados e _Quality Gate_ de Cobertura · `0.13.0`
+### ✅ Fase 13 — Suíte de Testes Automatizados e _Quality Gate_ de Cobertura · `0.13.0` _(concluída)_
 **Objetivo:** estabelecer uma suíte determinística (unitários + integração) com **cobertura mínima de 80%** antes da containerização.
 
 **Entregáveis:**
 - `test-tooling-configuration` · `unit-testing` (serviços com _mocks_) · `test-doubles-and-fixtures` (`conftest.py`)
 - `integration-testing` (Testcontainers + `TestClient`) · `test-environment` (`docker-compose.test.yml`)
 - `coverage-quality-gate` (`--cov-fail-under=80`) · `test-stabilization`
+
+_Como implementado:_ toolchain `pytest` + `pytest-asyncio` (modo `auto`) + `pytest-mock` + `pytest-cov` +
+`testcontainers` no grupo `dev`; `[tool.pytest.ini_options]` com `addopts` que embute o gate (`--cov=energyhub
+--cov-fail-under=80`) e o marcador `integration`. **Unitários** dos 15 serviços de aplicação com colaboradores
+`AsyncMock` (caminhos felizes + exceções de domínio, convenção `test_should_..._when_...`); um `conftest.py`
+inicializa um cache **em memória** por teste (para os métodos `@cache`/`invalidate_cache` rodarem sem Redis) e
+expõe doubles compartilhados. **Componente** dos 13 routers via `TestClient` + `dependency_overrides`
+(sobrescrevendo `get_current_user`) — cobrindo apresentação e _guards_ RBAC sem infraestrutura. **Integração**:
+`test_client_repository` contra um `PostgresContainer` (com _fallback_ para `EH_TEST_DATABASE_URL`) e
+`test_client_router` via `TestClient` com login JWT real; ambos marcados `integration` e pulados sem Docker.
+`docker-compose.test.yml` isola PG/Redis/RabbitMQ em `5433/6380/5673`. Verificado: **ruff/black (476) + mypy
+(429) limpos**; no host **273 passam** (integração pulada) com **cobertura 85%**; **in-container** (onde o
+Postgres é acessível) **279 passam** com **cobertura 87%**, gate satisfeito. Estabilização não revelou defeito
+de aplicação — apenas ajustes de _harness_ (isolamento de cache; `raise_server_exceptions=False` no TestClient).
 
 ### 📋 Fase 14 — Containerização e Orquestração Completa · `0.14.0`
 **Objetivo:** empacotar a aplicação em imagem Docker _slim_ e _non-root_ e orquestrar toda a stack com Docker Compose (boot com um comando).
