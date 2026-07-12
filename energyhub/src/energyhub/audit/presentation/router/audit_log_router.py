@@ -12,6 +12,7 @@ from energyhub.audit.application.dto.audit_log_response_dto import AuditLogRespo
 from energyhub.audit.application.service.audit_log_service import AuditLogService
 from energyhub.audit.application.usecase.create_audit_log_use_case import CreateAuditLogUseCase
 from energyhub.audit.infrastructure.persistence.audit_log_repository import AuditLogRepository
+from energyhub.auth.infrastructure.security.current_user import get_current_user
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.application_constants import (
@@ -19,7 +20,12 @@ from energyhub.shared.constant.application_constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
+from energyhub.shared.constant.permissions import (
+    AUDIT_LOG_CREATE,
+    AUDIT_LOG_READ,
+)
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -39,7 +45,11 @@ class AuditLogRouter(BaseRouter):
     """Registra os endpoints REST de logs de auditoria sob `/api/v1/audit-logs`."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/audit-logs", tags=["audit"])
+        super().__init__(
+            prefix=f"{API_V1_PREFIX}/audit-logs",
+            tags=["audit"],
+            dependencies=[Depends(get_current_user)],
+        )
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -51,6 +61,7 @@ class AuditLogRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Registra um log de auditoria",
             description="Registra um log de auditoria (recurso append-only).",
+            dependencies=[Depends(require_permission(AUDIT_LOG_CREATE))],
         )
         async def create(
             dto: AuditLogRequestDTO,
@@ -62,6 +73,7 @@ class AuditLogRouter(BaseRouter):
             "/{audit_log_id}",
             response_model=AuditLogResponseDTO,
             summary="Busca um log de auditoria por id",
+            dependencies=[Depends(require_permission(AUDIT_LOG_READ))],
         )
         async def find_by_id(
             audit_log_id: UUID,
@@ -73,6 +85,7 @@ class AuditLogRouter(BaseRouter):
             "",
             response_model=PageResponse[AuditLogResponseDTO],
             summary="Lista logs de auditoria (paginado)",
+            dependencies=[Depends(require_permission(AUDIT_LOG_READ))],
         )
         async def find_all(
             service: AuditLogService = Depends(get_audit_log_service),

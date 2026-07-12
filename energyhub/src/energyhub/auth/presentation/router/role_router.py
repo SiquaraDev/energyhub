@@ -12,6 +12,7 @@ from energyhub.auth.application.dto.role_response_dto import RoleResponseDTO
 from energyhub.auth.application.service.role_service import RoleService
 from energyhub.auth.infrastructure.persistence.permission_repository import PermissionRepository
 from energyhub.auth.infrastructure.persistence.role_repository import RoleRepository
+from energyhub.auth.infrastructure.security.current_user import get_current_user
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.application_constants import (
@@ -19,7 +20,14 @@ from energyhub.shared.constant.application_constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
+from energyhub.shared.constant.permissions import (
+    ROLE_CREATE,
+    ROLE_DELETE,
+    ROLE_READ,
+    ROLE_UPDATE,
+)
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -32,7 +40,11 @@ class RoleRouter(BaseRouter):
     """Endpoints REST de papéis."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/roles", tags=["auth"])
+        super().__init__(
+            prefix=f"{API_V1_PREFIX}/roles",
+            tags=["auth"],
+            dependencies=[Depends(get_current_user)],
+        )
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -43,6 +55,7 @@ class RoleRouter(BaseRouter):
             response_model=RoleResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Cria um papel",
+            dependencies=[Depends(require_permission(ROLE_CREATE))],
         )
         async def create(
             dto: RoleRequestDTO,
@@ -50,7 +63,12 @@ class RoleRouter(BaseRouter):
         ) -> RoleResponseDTO:
             return await service.create(dto)
 
-        @router.get("/{role_id}", response_model=RoleResponseDTO, summary="Busca um papel por id")
+        @router.get(
+            "/{role_id}",
+            response_model=RoleResponseDTO,
+            summary="Busca um papel por id",
+            dependencies=[Depends(require_permission(ROLE_READ))],
+        )
         async def find_by_id(
             role_id: UUID,
             service: RoleService = Depends(get_role_service),
@@ -61,6 +79,7 @@ class RoleRouter(BaseRouter):
             "",
             response_model=PageResponse[RoleResponseDTO],
             summary="Lista papéis (paginado)",
+            dependencies=[Depends(require_permission(ROLE_READ))],
         )
         async def find_all(
             service: RoleService = Depends(get_role_service),
@@ -75,7 +94,12 @@ class RoleRouter(BaseRouter):
                 PageRequest(page=page, size=size, sort=sort, direction=direction)
             )
 
-        @router.put("/{role_id}", response_model=RoleResponseDTO, summary="Atualiza um papel")
+        @router.put(
+            "/{role_id}",
+            response_model=RoleResponseDTO,
+            summary="Atualiza um papel",
+            dependencies=[Depends(require_permission(ROLE_UPDATE))],
+        )
         async def update(
             role_id: UUID,
             dto: RoleRequestDTO,
@@ -87,6 +111,7 @@ class RoleRouter(BaseRouter):
             "/{role_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um papel",
+            dependencies=[Depends(require_permission(ROLE_DELETE))],
         )
         async def delete(
             role_id: UUID,

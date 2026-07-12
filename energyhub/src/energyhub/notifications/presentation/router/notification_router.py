@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from energyhub.auth.infrastructure.security.current_user import get_current_user
 from energyhub.notifications.application.dto.notification_request_dto import (
     NotificationRequestDTO,
 )
@@ -27,7 +28,14 @@ from energyhub.shared.constant.application_constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
+from energyhub.shared.constant.permissions import (
+    NOTIFICATION_CREATE,
+    NOTIFICATION_DELETE,
+    NOTIFICATION_READ,
+    NOTIFICATION_UPDATE,
+)
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -49,7 +57,11 @@ class NotificationRouter(BaseRouter):
     """Registra os endpoints REST de notificações sob `/api/v1/notifications`."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/notifications", tags=["notifications"])
+        super().__init__(
+            prefix=f"{API_V1_PREFIX}/notifications",
+            tags=["notifications"],
+            dependencies=[Depends(get_current_user)],
+        )
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -60,6 +72,7 @@ class NotificationRouter(BaseRouter):
             response_model=NotificationResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma notificação",
+            dependencies=[Depends(require_permission(NOTIFICATION_CREATE))],
         )
         async def create(
             dto: NotificationRequestDTO,
@@ -71,6 +84,7 @@ class NotificationRouter(BaseRouter):
             "/{notification_id}",
             response_model=NotificationResponseDTO,
             summary="Busca uma notificação por id",
+            dependencies=[Depends(require_permission(NOTIFICATION_READ))],
         )
         async def find_by_id(
             notification_id: UUID,
@@ -82,6 +96,7 @@ class NotificationRouter(BaseRouter):
             "",
             response_model=PageResponse[NotificationResponseDTO],
             summary="Lista notificações (paginado)",
+            dependencies=[Depends(require_permission(NOTIFICATION_READ))],
         )
         async def find_all(
             service: NotificationService = Depends(get_notification_service),
@@ -100,6 +115,7 @@ class NotificationRouter(BaseRouter):
             "/{notification_id}",
             response_model=NotificationResponseDTO,
             summary="Atualiza uma notificação",
+            dependencies=[Depends(require_permission(NOTIFICATION_UPDATE))],
         )
         async def update(
             notification_id: UUID,
@@ -112,6 +128,7 @@ class NotificationRouter(BaseRouter):
             "/{notification_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove uma notificação",
+            dependencies=[Depends(require_permission(NOTIFICATION_DELETE))],
         )
         async def delete(
             notification_id: UUID,

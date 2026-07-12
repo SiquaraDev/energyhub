@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 6
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.6.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 7 — Autenticação e Autorização
-> RBAC**. As **Fases 7–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 7
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.7.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 8 — Documentação da API e Erros
+> Padronizados**. As **Fases 8–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -178,7 +178,7 @@ _Como implementado:_ **mapeamento imperativo** (`registry.map_imperatively`) em 
 
 _Como implementado:_ **10 routers / 25 endpoints** (`/api/v1/...`) sobre a cadeia **DTO→mapper→service→use-case**; DTOs Pydantic (resposta estende `BaseDTO`, `from_attributes`), validadores compartilhados aplicados via `@field_validator`, e **handler central** que traduz exceções de domínio em HTTP (404/409/422). `auth` com **M2M** (papéis/permissões aninhados via `selectin`; senha **bcrypt**, nunca exposta); sub-recursos (contatos, pagamentos, transações) com a FK vinda do path. Ajustes de fundação: `BaseDTO`/`PageResponse` migrados para **Pydantic**, relações de navegação do ORM como **`viewonly`** e `get_session` passa a **commitar na borda** da requisição. Verificado com **ruff / black / mypy (384) limpos** + **2 E2E HTTP** cobrindo os 8 módulos e os erros 404/409/422 contra o Postgres do Docker.
 
-### 📋 Fase 7 — Autenticação e Autorização RBAC · `0.7.0`
+### ✅ Fase 7 — Autenticação e Autorização RBAC · `0.7.0` _(concluída)_
 **Objetivo:** proteger a API com login por JWT e controle de acesso por papéis/permissões.
 
 **Entregáveis:**
@@ -186,6 +186,20 @@ _Como implementado:_ **10 routers / 25 endpoints** (`/api/v1/...`) sobre a cadei
 - `current-user-resolution` (`get_current_user` + `UserDetails`) — 401 em token inválido
 - `rbac-authorization` — `require_permission` / `require_role` (403 em grant insuficiente)
 - `role-permission-services` · `endpoint-security` (rotas públicas × protegidas)
+
+_Como implementado:_ hashing **bcrypt direto** (`get_password_hash`/`verify_password`; o `passlib`
+1.7.4 é incompatível com o `bcrypt 5.x` — desvio da spec documentado no módulo). `JwtService`
+(python-jose, HS256) com `create_token`/`decode_token`/`extract_username`/`is_token_valid`; login
+(`AuthenticationService` + `AuthRouter`) que rejeita usuário inexistente/senha errada/inativo com **401**
+e emite o token + perfil. `get_current_user` usa `HTTPBearer(auto_error=False)` (token ausente → **401**,
+não 403) e resolve o `sub`→`UserDetails` (papéis + permissões achatadas via `selectin`).
+`require_permission`/`require_role` (em `shared`, encadeados após `get_current_user`) barram com **403**.
+**10 routers protegidos** (nível de grupo `get_current_user` + **54 guards** `require_permission` por
+endpoint), catálogo canônico em `shared/constant/permissions.py`; login/`/`/`/health` públicos. Nova
+**migração `0009`** semeia o catálogo completo (**38 permissões**) e concede **todas** ao `ADMIN` via
+`INSERT…SELECT` idempotente. Verificado: **ruff/black/mypy (394) limpos**, **26 paths OpenAPI** (54
+operações com `security`), e **E2E** contra o Postgres do Docker (login **200**, sem token **401**, sem
+permissão **403**, com permissão **200**).
 
 ### 📋 Fase 8 — Documentação da API e Erros Padronizados · `0.8.0`
 **Objetivo:** tornar a API auto-descritiva com contrato OpenAPI curado e respostas de erro consistentes.

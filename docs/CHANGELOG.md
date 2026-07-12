@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–6** (`0.0.0` → `0.6.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.7.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–7** (`0.0.0` → `0.7.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.8.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,12 +24,13 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **45 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **52 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
 - **Camada de persistência (Fase 5):** engine async + `get_session()`, **mapeamento imperativo** das 13 entidades (domínio segue puro), `SQLAlchemyRepository[T, ID]` + 13 repositórios concretos, filtros/DTOs de filtro e paginação (`PageRequest`/`PageResponse`), com testes de integração contra o Postgres do Docker.
 - **API REST (Fase 6):** camadas de aplicação e apresentação — DTOs/mappers/services/use-cases/exceções e **10 routers (25 endpoints)** sob `/api/v1/`, auto-documentados em `/docs`; handler de exceções domínio→HTTP; `auth` com M2M e hash bcrypt.
+- **Segurança JWT/RBAC (Fase 7):** login (`POST /api/v1/auth/login`) + `JwtService` (HS256), `get_current_user`/`UserDetails` e guards `require_permission`/`require_role`; **10 routers protegidos** (54 guards por endpoint), catálogo de permissões (`shared/constant/permissions.py`) e migração `0009` que semeia **38 permissões** e concede todas ao `ADMIN`. Sem token → 401; sem permissão → 403.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -181,21 +182,29 @@ API auto-descritiva com contrato OpenAPI curado e erros padronizados.
 
 ---
 
-## [0.7.0] — 🔮 Planejado · _Fase 7 · Autenticação & RBAC_
+## [0.7.0] — 2026-07-12 · ✅ Lançado · _Fase 7 · Autenticação & RBAC_
 
-Identidade verificada por JWT e acesso controlado por papéis/permissões.
+Identidade verificada por JWT e acesso controlado por papéis/permissões, sobre a API da Fase 6.
 
 ### Adicionado
-- Módulo compartilhado de hashing BCrypt (`get_password_hash`, `verify_password`).
-- Configurações JWT e `JwtService` (python-jose, HS256) que cria, decodifica, valida e extrai o _subject_ dos tokens.
-- Fluxo de login (`LoginRequestDTO`/`LoginResponseDTO`, `AuthenticationService`, `AuthRouter` — `POST /api/v1/auth/login`).
-- Dependência `get_current_user` + `UserDetails` (papéis e permissões achatadas); 401 em token inválido/ausente.
-- `require_permission` / `require_role` para RBAC (403 em grant insuficiente).
-- `RoleService` e `PermissionService` (somente leitura) e proteção por endpoint (rotas públicas × protegidas).
+- Módulo compartilhado de hashing BCrypt (`get_password_hash`, `verify_password`) em `shared/infrastructure/security/password_hasher.py`.
+- `JwtService` (python-jose, HS256) que cria, decodifica, valida e extrai o _subject_ dos tokens, lendo `secret_key`/`algorithm`/`access_token_expire_minutes` das _settings_.
+- Fluxo de login: `LoginRequestDTO`/`LoginResponseDTO`, `AuthenticationService` (rejeita usuário inexistente, senha errada e conta inativa com o **mesmo** erro) e `AuthRouter` público (`POST /api/v1/auth/login`); handler dedicado que traduz credenciais inválidas em **401** (`WWW-Authenticate: Bearer`).
+- Dependência `get_current_user` (`HTTPBearer(auto_error=False)`) + `UserDetails` (papéis e permissões **achatadas**); token ausente/inválido ou _subject_ sem usuário → **401**.
+- `require_permission` / `require_role` (em `shared`, encadeados após `get_current_user`) → **403** em grant insuficiente.
+- Leitura de papéis/permissões: `RoleService.find_by_name` e `PermissionService.find_by_role_name`.
+- **Catálogo de permissões** (`shared/constant/permissions.py`, 38 nomes `<RECURSO>_<AÇÃO>`) e proteção de **10 routers** — `get_current_user` no nível do grupo + **54 guards** `require_permission` por endpoint; login/`/`/`/health` públicos.
+- **Migração `0009`**: semeia o catálogo completo de **34 novas permissões** (além das 4 `USER_*` da `0008`) e concede **todas** ao papel `ADMIN` via `INSERT…SELECT` idempotente (à prova de futuro).
+
+### Alterado
+- `BaseRouter` ganhou o parâmetro `dependencies` (repassado ao `APIRouter`) para proteção no nível do grupo.
+- `password_hasher` passou a expor `get_password_hash` (o `hash_password` da Fase 6 vira _alias_): o plano previa um `passlib` `CryptContext`, mas o `passlib` 1.7.4 é **incompatível** com o `bcrypt 5.x` — mantido o **bcrypt direto** (desvio documentado no módulo).
+- `main.py` registra a rota pública de auth, o handler 401, protege os routers de recurso e sobe para a versão **`0.7.0`**; _override_ de mypy para `jose.*` (lib sem stubs).
 
 ### Segurança
-- JWT stateless (HS256) para escalabilidade horizontal sem sessão compartilhada.
-- ⚠️ `SECRET_KEY` padrão e credenciais `admin/admin123` semeadas **devem ser rotacionadas antes de produção**.
+- JWT _stateless_ (HS256) para escalabilidade horizontal sem sessão compartilhada; token só de acesso (sem _refresh_/revogação nesta fase).
+- Senha nunca exposta nos DTOs de resposta; login não revela qual condição falhou.
+- ⚠️ `SECRET_KEY` padrão e a credencial semeada `admin` / `ChangeMe123!` (papel `ADMIN`, com **todas** as permissões) **devem ser rotacionadas antes de produção**.
 
 ---
 

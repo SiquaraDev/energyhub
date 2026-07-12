@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from energyhub.auth.infrastructure.security.current_user import get_current_user
 from energyhub.financial.application.dto.invoice_request_dto import InvoiceRequestDTO
 from energyhub.financial.application.dto.invoice_response_dto import InvoiceResponseDTO
 from energyhub.financial.application.dto.payment_request_dto import PaymentRequestDTO
@@ -23,7 +24,14 @@ from energyhub.shared.constant.application_constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
+from energyhub.shared.constant.permissions import (
+    INVOICE_CREATE,
+    INVOICE_DELETE,
+    INVOICE_READ,
+    INVOICE_UPDATE,
+)
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -48,7 +56,11 @@ class FinancialRouter(BaseRouter):
     """Registra os endpoints REST de faturas e pagamentos sob `/api/v1/invoices`."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/invoices", tags=["financial"])
+        super().__init__(
+            prefix=f"{API_V1_PREFIX}/invoices",
+            tags=["financial"],
+            dependencies=[Depends(get_current_user)],
+        )
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -60,6 +72,7 @@ class FinancialRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma fatura",
             description="Cria uma fatura. Rejeita número de fatura duplicado.",
+            dependencies=[Depends(require_permission(INVOICE_CREATE))],
         )
         async def create(
             dto: InvoiceRequestDTO,
@@ -71,6 +84,7 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             response_model=InvoiceResponseDTO,
             summary="Busca uma fatura por id",
+            dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def find_by_id(
             invoice_id: UUID,
@@ -82,6 +96,7 @@ class FinancialRouter(BaseRouter):
             "",
             response_model=PageResponse[InvoiceResponseDTO],
             summary="Lista faturas (paginado)",
+            dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def find_all(
             service: InvoiceService = Depends(get_invoice_service),
@@ -100,6 +115,7 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             response_model=InvoiceResponseDTO,
             summary="Atualiza uma fatura",
+            dependencies=[Depends(require_permission(INVOICE_UPDATE))],
         )
         async def update(
             invoice_id: UUID,
@@ -112,6 +128,7 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove uma fatura",
+            dependencies=[Depends(require_permission(INVOICE_DELETE))],
         )
         async def delete(
             invoice_id: UUID,
@@ -124,6 +141,7 @@ class FinancialRouter(BaseRouter):
             response_model=PaymentResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Registra um pagamento para a fatura",
+            dependencies=[Depends(require_permission(INVOICE_UPDATE))],
         )
         async def add_payment(
             invoice_id: UUID,
@@ -136,6 +154,7 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}/payments",
             response_model=list[PaymentResponseDTO],
             summary="Lista os pagamentos da fatura",
+            dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def list_payments(
             invoice_id: UUID,

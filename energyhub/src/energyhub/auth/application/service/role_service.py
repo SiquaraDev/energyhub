@@ -58,6 +58,13 @@ class RoleService:
             raise RoleNotFoundException(f"Papel {role_id} não encontrado")
         return self._mapper.to_response_dto(entity)
 
+    async def find_by_name(self, name: str) -> RoleResponseDTO:
+        """Busca um papel pelo nome (ex.: `ADMIN`); erro de recurso-não-encontrado se ausente."""
+        entity = await self._roles.find_by_name(name)
+        if entity is None:
+            raise RoleNotFoundException(f"Papel {name} não encontrado")
+        return self._mapper.to_response_dto(entity)
+
     async def find_all(self, page_request: PageRequest) -> PageResponse[RoleResponseDTO]:
         content, total = await self._roles.find_page(
             page_request.get_offset(), page_request.get_limit()

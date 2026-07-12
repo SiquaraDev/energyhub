@@ -13,19 +13,25 @@ from energyhub.auth.domain.exception.permission_already_exists_exception import 
 from energyhub.auth.domain.exception.permission_not_found_exception import (
     PermissionNotFoundException,
 )
+from energyhub.auth.domain.exception.role_not_found_exception import RoleNotFoundException
 from energyhub.auth.infrastructure.persistence.permission_repository import PermissionRepository
+from energyhub.auth.infrastructure.persistence.role_repository import RoleRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
 
 
 class PermissionService:
-    """CRUD de permissões com unicidade de nome."""
+    """CRUD de permissões com unicidade de nome, e leitura das permissões de um papel."""
 
     def __init__(
-        self, repository: PermissionRepository, mapper: PermissionMapper | None = None
+        self,
+        repository: PermissionRepository,
+        mapper: PermissionMapper | None = None,
+        role_repository: RoleRepository | None = None,
     ) -> None:
         self._repository = repository
         self._mapper = mapper or PermissionMapper()
+        self._roles = role_repository
 
     async def create(self, dto: PermissionRequestDTO) -> PermissionResponseDTO:
         if await self._repository.exists_by_name(dto.name):
@@ -45,6 +51,15 @@ class PermissionService:
         )
         dtos = [self._mapper.to_response_dto(entity) for entity in content]
         return PageResponse.create(dtos, page_request.page, page_request.size, total)
+
+    async def find_by_role_name(self, role_name: str) -> list[PermissionResponseDTO]:
+        """Lista as permissões concedidas a um papel (carregadas eager via `selectin`)."""
+        if self._roles is None:
+            raise RuntimeError("find_by_role_name requer um RoleRepository injetado")
+        role = await self._roles.find_by_name(role_name)
+        if role is None:
+            raise RoleNotFoundException(f"Papel {role_name} não encontrado")
+        return [self._mapper.to_response_dto(permission) for permission in role.permissions]
 
     async def update(self, permission_id: UUID, dto: PermissionRequestDTO) -> PermissionResponseDTO:
         entity = await self._repository.find_by_id(permission_id)

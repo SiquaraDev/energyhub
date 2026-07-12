@@ -4,6 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from energyhub.audit.presentation.router.audit_log_router import AuditLogRouter
+from energyhub.auth.domain.exception.invalid_credentials_exception import (
+    InvalidCredentialsException,
+)
+from energyhub.auth.presentation.exception.invalid_credentials_exception_handler import (
+    invalid_credentials_exception_handler,
+)
+from energyhub.auth.presentation.router.auth_router import AuthRouter
 from energyhub.auth.presentation.router.permission_router import PermissionRouter
 from energyhub.auth.presentation.router.role_router import RoleRouter
 from energyhub.auth.presentation.router.user_router import UserRouter
@@ -25,8 +32,11 @@ configure_mappings()
 
 app = FastAPI(
     title="EnergyHub API",
-    description="Plataforma de negociação de energia — API REST (Clean Architecture · DDD).",
-    version="0.6.0",
+    description=(
+        "Plataforma de negociação de energia — API REST (Clean Architecture · DDD). "
+        "Autenticação JWT em `/api/v1/auth/login`; endpoints protegidos exigem token e permissão."
+    ),
+    version="0.7.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -41,6 +51,14 @@ app.add_middleware(
 
 # Traduz exceções de domínio em respostas HTTP padronizadas (404/409/422).
 app.add_exception_handler(DomainException, domain_exception_handler)  # type: ignore[arg-type]
+# Credenciais inválidas no login → 401 (handler mais específico que o de domínio).
+app.add_exception_handler(
+    InvalidCredentialsException,
+    invalid_credentials_exception_handler,  # type: ignore[arg-type]
+)
+
+# Rota pública de autenticação (login) — registrada sem dependência de token.
+app.include_router(AuthRouter().get_router())
 
 # Routers dos módulos de negócio.
 app.include_router(UserRouter().get_router())

@@ -1,14 +1,15 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–6)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–7)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 6 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
-Persistência e API REST** (versão `0.6.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 7 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência, API REST e Segurança (JWT/RBAC)** (versão `0.7.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
 enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, a **camada de
 persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, serviços, use cases e
-routers) da Fase 6, suas **assinaturas reais** e como estendê-las nas próximas fases.
+routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, RBAC por permissão) da
+Fase 7, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -19,7 +20,7 @@ routers) da Fase 6, suas **assinaturas reais** e como estendê-las nas próximas
 ## 🏛️ 1. Visão geral
 
 O EnergyHub segue **Clean Architecture** e **Domain-Driven Design (DDD)** sobre a stack
-**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 6, o código
+**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 7, o código
 Python está organizado assim:
 
 | Dimensão | Valor (as-built) |
@@ -28,7 +29,7 @@ Python está organizado assim:
 | **Módulos** | **9**: `shared`, `auth`, `clients`, `contracts`, `negotiations`, `financial`, `audit`, `notifications`, `reports` |
 | **Camadas por módulo** | **4**: `domain`, `application`, `infrastructure`, `presentation` |
 | **Classes-base** | Concentradas em `shared`, uma para cada bloco fundamental das 4 camadas |
-| **App FastAPI** | `src/energyhub/main.py` — `/`, `/health` e **10 routers** REST (`/api/v1/…`, 25 endpoints), CORS, handler de exceções, `/docs`·`/redoc` |
+| **App FastAPI** | `src/energyhub/main.py` — `/`, `/health`, login público `/api/v1/auth/login` e **10 routers** REST protegidos (`/api/v1/…`, 25 endpoints, **54 operações com JWT/RBAC**), CORS, handlers de exceção (domínio→HTTP + 401), `/docs`·`/redoc` |
 | **Configuração** | `config/` é **pacote** (não módulo único): `settings.py` + `dependencies/` |
 
 O `shared` é o único módulo **transversal**: não modela negócio, apenas fornece os blocos
@@ -36,7 +37,8 @@ reutilizados por todos os demais. Os outros 8 módulos são de **negócio** e, a
 a camada `domain` preenchida com **entidades, enums e agregados** (ver Seção 8); na Fase 5, a
 `infrastructure/persistence` de cada módulo ganhou seu **repositório** (ver Seção 10); na Fase 6, as
 camadas `application` (DTOs, mappers, services, use cases) e `presentation` (routers) foram
-preenchidas (ver Seção 11). As **4 camadas** estão agora ativas nos módulos de negócio.
+preenchidas (ver Seção 11); na Fase 7, a `infrastructure/security` e os _guards_ RBAC passaram a
+**proteger** esses routers (ver Seção 12). As **4 camadas** estão agora ativas nos módulos de negócio.
 
 > 🧱 A anatomia interna é idêntica em todos os módulos: cada um repete as mesmas **4 camadas** e os
 > mesmos **sub-pacotes**. Na Fase 3 a camada `domain` passou a conter código; na Fase 5 a
@@ -55,10 +57,10 @@ energyhub/                              # projeto Poetry (raiz Python)
 ├── pyproject.toml   poetry.lock   README.md
 ├── .env                                # git-ignored (roda a partir de energyhub/)
 ├── alembic.ini                         # config do Alembic (Fase 4)
-├── alembic/                            # env.py (async · online/offline) · versions/ (8 migrações 0001→0008)
+├── alembic/                            # env.py (async · online/offline) · versions/ (9 migrações 0001→0009)
 ├── src/energyhub/
 │   ├── py.typed                        # marcador PEP 561 (pacote tipado) — Fase 4
-│   ├── main.py                         # app FastAPI (/ , /health, CORS)
+│   ├── main.py                         # app FastAPI (/ , /health, CORS, login público + routers protegidos)
 │   ├── config/                         # pacote de configuração
 │   │   ├── __init__.py                 # reexporta Settings, get_settings, settings
 │   │   ├── settings.py                 # Settings (pydantic-settings) + get_settings()
@@ -87,7 +89,7 @@ energyhub/                              # projeto Poetry (raiz Python)
 │   │   │   │   └── sqlalchemy_repository.py     # SQLAlchemyRepository[T, ID]
 │   │   │   ├── messaging/                       # (eventos/mensageria — futuro)
 │   │   │   ├── config/                          # (config de infra — futuro)
-│   │   │   └── security/                        # (segurança — futuro)
+│   │   │   └── security/                        # password_hasher.py · authorization.py (require_permission/role) — Fases 6–7
 │   │   ├── presentation/
 │   │   │   ├── router/base_router.py            # BaseRouter
 │   │   │   ├── request/                         # (schemas de request — futuro)
@@ -151,7 +153,7 @@ cada camada. Caminhos relativos a `src/energyhub/`.
 | `UseCase[Input, Output]` | `shared/application/usecase/usecase.py` | Contrato de caso de uso | `ABC`, `async execute(input_data: Input) -> Output` |
 | `ApplicationException` | `shared/application/exception/application_exception.py` | Erro da camada de aplicação (orquestração) | `__init__(message: str)`; expõe `.message`; `__str__` |
 | `SQLAlchemyRepository[T, ID]` | `shared/infrastructure/persistence/sqlalchemy_repository.py` | Implementação CRUD assíncrona de `Repository` (Fase 5) | `__init__(session: AsyncSession, entity_type: type[T])`; `save` faz `flush` (não `commit`); + `find_by`/`find_page` |
-| `BaseRouter` | `shared/presentation/router/base_router.py` | Encapsula `APIRouter` padronizando prefixo/tags | `__init__(prefix: str = "", tags: list[str] | None = None)`; `get_router() -> APIRouter` |
+| `BaseRouter` | `shared/presentation/router/base_router.py` | Encapsula `APIRouter` padronizando prefixo/tags/dependências | `__init__(prefix="", tags=None, dependencies=None)` — `dependencies` habilita proteção de grupo (Fase 7); `get_router() -> APIRouter` |
 | `global_exception_handler` | `shared/presentation/exception/global_exception_handler.py` | Converte qualquer exceção não tratada em resposta 500 padronizada | `async (request: Request, exc: Exception) -> JSONResponse` |
 | `ErrorResponse` | `shared/presentation/response/error_response.py` | Corpo padronizado de erro da API | `@dataclass`; `timestamp: str`, `status: int`, `error: str`, `message: str`, `path: str` |
 
@@ -408,7 +410,7 @@ não geradas por _autogenerate_ (não haveria metadata para comparar sem os mode
 
 ### 9.2 🧱 Migrações e tabelas
 
-**8 migrações encadeadas** (`0001`→`0008`), cada uma com `downgrade` simétrico:
+**9 migrações encadeadas** (`0001`→`0009`), cada uma com `downgrade` simétrico:
 
 | Revisão | Conteúdo |
 | :-----: | :------- |
@@ -419,7 +421,8 @@ não geradas por _autogenerate_ (não haveria metadata para comparar sem os mode
 | `0005` | `notifications`, `reports` |
 | `0006` | índices compostos e temporais |
 | `0007` | CHECK constraints + função/triggers `updated_at` |
-| `0008` | _seed_ (papéis, permissões, grants, usuário admin) |
+| `0008` | _seed_ (papéis, 4 permissões `USER_*`, grants, usuário admin) |
+| `0009` | _seed_ do **catálogo completo** de permissões (34 novas → 38 no total) + concede **todas** ao `ADMIN` (Fase 7) |
 
 **15 tabelas** de domínio no total. Convenções: **PK UUID** com `server_default gen_random_uuid()`;
 `created_at`/`updated_at` `TIMESTAMP WITH TIME ZONE` default `CURRENT_TIMESTAMP`; valores monetários e
@@ -445,11 +448,13 @@ quantidades em `Numeric` (nunca ponto flutuante); `JSONB` para `details`/`parame
 ### 9.4 🌱 Seed e verificação
 
 O _seed_ (revisão `0008`, idempotente com `ON CONFLICT DO NOTHING`) insere 3 papéis
-(`ADMIN`/`OPERATOR`/`CLIENT`), 4 permissões base, os grants do ADMIN e o usuário **`admin`** (hash
-**bcrypt**, UUIDs fixos). ⚠️ Credencial de _bootstrap_ — **rotacionar antes de produção**.
+(`ADMIN`/`OPERATOR`/`CLIENT`), 4 permissões `USER_*`, os grants do ADMIN e o usuário **`admin`** (hash
+**bcrypt**, UUIDs fixos). A revisão **`0009`** (Fase 7) completa o catálogo para **38 permissões** e
+concede **todas** ao `ADMIN` via `INSERT…SELECT` idempotente. ⚠️ Credencial de _bootstrap_ —
+**rotacionar antes de produção** (junto com o `SECRET_KEY`).
 
-Validado contra o **PostgreSQL do Docker**: `upgrade head` cria **16 tabelas** (15 + `alembic_version`
-em `0008`); os cenários de CHECK/unicidade/FK (CASCADE e RESTRICT) e o trigger de `updated_at` se
+Validado contra o **PostgreSQL do Docker**: `upgrade head` cria **16 tabelas** (15 + `alembic_version`,
+agora em `0009`); os cenários de CHECK/unicidade/FK (CASCADE e RESTRICT) e o trigger de `updated_at` se
 comportam como esperado; e o _round-trip_ `downgrade base` → `upgrade head` volta ao schema completo
 sem erros de FK. Gates limpos: `ruff` / `black` / `mypy` (em `src` e `alembic`).
 
@@ -579,7 +584,91 @@ padrões para evitar armadilhas do async + relações:
 
 ---
 
-## 🚀 12. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🔒 12. Segurança — Autenticação & Autorização (Fase 7)
+
+A **Fase 7** (versão `0.7.0`) adicionou a camada de segurança **sobre** a API da Fase 6: identidade
+verificada por **JWT** e acesso controlado por **papéis/permissões (RBAC)**, tudo expresso como
+**dependências do FastAPI** anexadas às rotas (não um _middleware_ global). O corte por camada segue a
+regra de dependência: hashing e _guards_ são transversais e vivem em `shared`; JWT e carregamento do
+usuário são específicos de auth e vivem em `auth`.
+
+### 12.1 🧱 As peças
+
+| Peça | Local | Papel / assinatura-chave |
+| :--- | :---- | :----------------------- |
+| `get_password_hash` / `verify_password` | `shared/infrastructure/security/password_hasher.py` | Hash BCrypt (custo 12; trunca a 72 bytes). `hash_password` é _alias_ retrocompat. |
+| `JwtService` | `auth/infrastructure/security/jwt_service.py` | HS256 a partir das _settings_: `create_token(subject, claims)`, `decode_token`, `extract_username`, `is_token_valid`. |
+| `LoginRequestDTO` / `LoginResponseDTO` | `auth/application/dto/` | Credenciais e retorno (`access_token`, `token_type="bearer"`, `user`). |
+| `AuthenticationService` | `auth/application/service/authentication_service.py` | `login(dto)`: valida credenciais e emite o token; rejeita inexistente/senha errada/inativo com o **mesmo** erro. |
+| `AuthRouter` | `auth/presentation/router/auth_router.py` | Rota **pública** `POST /api/v1/auth/login`. |
+| `UserDetails` | `auth/infrastructure/security/user_details.py` | Wrapper do `User`: `username`, `active`, `roles` (nomes), `permissions` (achatadas). |
+| `get_current_user` | `auth/infrastructure/security/current_user.py` | Dependência: `HTTPBearer(auto_error=False)` → `extract_username` → recarrega o usuário → `UserDetails`. |
+| `require_permission` / `require_role` | `shared/infrastructure/security/authorization.py` | _Factories_ de dependência (encadeiam `get_current_user`) → **403** se faltar o grant. |
+| Catálogo de permissões | `shared/constant/permissions.py` | 38 nomes canônicos `<RECURSO>_<AÇÃO>` + `PERMISSION_CATALOG`. |
+
+### 12.2 🔑 Fluxo de autenticação
+
+1. `POST /api/v1/auth/login` (público) → `AuthenticationService.login` acha o usuário por `username`,
+   confere a senha com `verify_password` e a conta ativa; em falha, `InvalidCredentialsException`.
+2. Um **handler dedicado** traduz `InvalidCredentialsException` em **401** com `WWW-Authenticate: Bearer`
+   (mais específico, na MRO, que o handler de domínio que a mapearia para 422).
+3. Em sucesso, `JwtService.create_token(username)` emite o JWT (claim `sub`=username, `exp`); a resposta
+   traz o token + o perfil (`UserResponseDTO`, **sem** senha).
+4. Nas rotas protegidas, `get_current_user` lê o `Bearer`, extrai o `sub` e **recarrega** o usuário
+   (papéis/permissões vêm _eager_ via `lazy="selectin"`) — token ausente/inválido ou _subject_ sem
+   usuário → **401**. Recarregar a cada request mantém a autorização fresca quando os grants mudam.
+
+### 12.3 🛡️ Autorização (RBAC) e proteção dos endpoints
+
+- **Guards:** `require_permission("CLIENT_CREATE")` / `require_role("ADMIN")` dependem de
+  `get_current_user`, então **401 (não autenticado)** é sempre resolvido **antes** de **403 (sem
+  permissão)**. `UserDetails.permissions` achata os nomes de permissão por todos os papéis do usuário.
+- **Proteção em dois níveis:** cada router de recurso passa `dependencies=[Depends(get_current_user)]`
+  no `super().__init__(...)` (proteção de **grupo**) **e** anexa `dependencies=[Depends(require_permission(<PERM>))]`
+  por endpoint (mapeando CRUD → permissão). Sub-recursos reutilizam a permissão do pai; `audit-logs` é
+  append-only (`AUDIT_LOG_CREATE`/`_READ`).
+- **Superfície:** **54 operações** exigem JWT + permissão; apenas `POST /api/v1/auth/login`, `/` e
+  `/health` são públicos. O esquema de segurança do OpenAPI é `HTTPBearer` (botão **Authorize** no `/docs`).
+- **Dados de grant:** a migração `0009` semeia as **38 permissões** e concede **todas** ao `ADMIN`
+  (`INSERT…SELECT`, à prova de futuro). `OPERATOR`/`CLIENT` ficam sem grants até uma fase futura.
+
+### 12.4 ⚠️ Decisões e desvios
+
+- **BCrypt direto (não `passlib`):** o plano previa um `passlib` `CryptContext`, mas o `passlib` 1.7.4
+  é incompatível com o `bcrypt 5.x` instalado (estoura ao ler `bcrypt.__about__`). Preservou-se a
+  _intenção_ da spec com a lib `bcrypt` diretamente — documentado no módulo.
+- **`python-jose` sem stubs:** _override_ de mypy `module=["jose.*"] ignore_missing_imports=true`; os
+  tipos de retorno são fixados no `JwtService`.
+- **Seed do catálogo (0009):** desvio consciente do _non-goal_ "sem mudanças no seed" da Fase 7 — sem
+  as permissões semeadas os _guards_ não teriam grants para verificar e a API ficaria inutilizável.
+- **JWT _stateless_ (HS256):** sem sessão/servidor de estado; token só de acesso (sem _refresh_/revogação
+  nesta fase) — manter `access_token_expire_minutes` modesto.
+
+### 12.5 🧪 Como proteger um novo endpoint
+
+```python
+from fastapi import Depends
+from energyhub.auth.infrastructure.security.current_user import get_current_user
+from energyhub.shared.constant.permissions import CLIENT_CREATE
+from energyhub.shared.infrastructure.security.authorization import require_permission
+
+class ClientRouter(BaseRouter):
+    def __init__(self) -> None:
+        # proteção de grupo: todo endpoint deste router exige um JWT válido
+        super().__init__(prefix=f"{API_V1_PREFIX}/clients", tags=["clients"],
+                         dependencies=[Depends(get_current_user)])
+        ...
+
+    @router.post("", dependencies=[Depends(require_permission(CLIENT_CREATE))])
+    async def create(...): ...
+```
+
+Para uma permissão nova, adicione a constante em `shared/constant/permissions.py`, semeie-a numa nova
+migração e conceda-a ao(s) papel(is) — os _guards_ passam a reconhecê-la automaticamente.
+
+---
+
+## 🚀 13. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -599,7 +688,8 @@ Passo a passo curto, aproveitando o esqueleto já existente:
    concreto em `<módulo>/infrastructure/persistence/`, estendendo `SQLAlchemyRepository[T, ID]`
    (ver Seção 10).
 5. **Presentation** — crie o router em `router/` usando/estendendo `BaseRouter`, os _schemas_ em
-   `request/`/`response/`, e registre o router na app (`main.py`).
+   `request/`/`response/`, e registre o router na app (`main.py`). **Proteja-o**: `dependencies=[Depends(get_current_user)]`
+   no grupo e `Depends(require_permission(<PERM>))` por endpoint, com a permissão do catálogo (ver Seção 12).
 6. **Registre o `global_exception_handler`** na app quando começar a expor endpoints de negócio,
    para respostas de erro padronizadas (`ErrorResponse`).
 7. **Testes** — adicione testes em `tests/`, seguindo `tests/test_base_entity.py` e a fixture de
@@ -610,7 +700,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 13. Referências
+## 📚 14. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

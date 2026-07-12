@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from energyhub.auth.infrastructure.security.current_user import get_current_user
 from energyhub.contracts.application.dto.contract_request_dto import ContractRequestDTO
 from energyhub.contracts.application.dto.contract_response_dto import ContractResponseDTO
 from energyhub.contracts.application.service.contract_service import ContractService
@@ -19,7 +20,14 @@ from energyhub.shared.constant.application_constants import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
+from energyhub.shared.constant.permissions import (
+    CONTRACT_CREATE,
+    CONTRACT_DELETE,
+    CONTRACT_READ,
+    CONTRACT_UPDATE,
+)
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -39,7 +47,11 @@ class ContractRouter(BaseRouter):
     """Registra os endpoints REST de contratos sob `/api/v1/contracts`."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/contracts", tags=["contracts"])
+        super().__init__(
+            prefix=f"{API_V1_PREFIX}/contracts",
+            tags=["contracts"],
+            dependencies=[Depends(get_current_user)],
+        )
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -51,6 +63,7 @@ class ContractRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria um contrato",
             description="Cria um contrato de energia. Rejeita número de contrato duplicado.",
+            dependencies=[Depends(require_permission(CONTRACT_CREATE))],
         )
         async def create(
             dto: ContractRequestDTO,
@@ -62,6 +75,7 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             response_model=ContractResponseDTO,
             summary="Busca um contrato por id",
+            dependencies=[Depends(require_permission(CONTRACT_READ))],
         )
         async def find_by_id(
             contract_id: UUID,
@@ -73,6 +87,7 @@ class ContractRouter(BaseRouter):
             "",
             response_model=PageResponse[ContractResponseDTO],
             summary="Lista contratos (paginado)",
+            dependencies=[Depends(require_permission(CONTRACT_READ))],
         )
         async def find_all(
             service: ContractService = Depends(get_contract_service),
@@ -91,6 +106,7 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             response_model=ContractResponseDTO,
             summary="Atualiza um contrato",
+            dependencies=[Depends(require_permission(CONTRACT_UPDATE))],
         )
         async def update(
             contract_id: UUID,
@@ -103,6 +119,7 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um contrato",
+            dependencies=[Depends(require_permission(CONTRACT_DELETE))],
         )
         async def delete(
             contract_id: UUID,

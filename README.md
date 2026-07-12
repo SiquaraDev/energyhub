@@ -52,13 +52,15 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 6 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 7 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
-> (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, e a **API REST** já
-> está no ar: **10 routers / 25 endpoints** (`/api/v1/...`, CRUD + listagem paginada + sub-recursos)
-> com DTOs/validação, exceções de domínio mapeadas para HTTP e documentação em **`/docs`**.
-> **Próxima: Fase 7** (autenticação e autorização RBAC). Consulte o
+> (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
+> no ar (**10 routers / 25 endpoints** `/api/v1/...`, CRUD + listagem paginada + sub-recursos), e a
+> **segurança** já protege a API: **login JWT** (`POST /api/v1/auth/login`), `get_current_user`,
+> **RBAC por permissão** (`require_permission`/`require_role`) — endpoints exigem token (**401**) e a
+> permissão correta (**403**); **54 operações protegidas**, só o login/`/`/`/health` são públicos.
+> **Próxima: Fase 8** (documentação da API e erros padronizados). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -170,7 +172,7 @@ no guia **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 | **ORM & Banco** | SQLAlchemy 2.0 (async) · asyncpg · PostgreSQL 16 |
 | **Migrações** | Alembic |
 | **Validação & Config** | Pydantic v2 · pydantic-settings |
-| **Autenticação** | JWT (python-jose, HS256) · BCrypt (passlib) |
+| **Autenticação** | JWT (python-jose, HS256) · BCrypt (lib `bcrypt`) · RBAC por permissão |
 | **Cache** | Redis 7 · fastapi-cache2 |
 | **Mensageria** | RabbitMQ (aio-pika) · Apache Kafka (aiokafka) |
 | **Busca** | Elasticsearch 8 · elasticsearch-dsl |
@@ -204,7 +206,7 @@ energyhub/
 │   └── config.yaml
 ├── energyhub/                 # 🐍 Projeto Python (Poetry, layout src/)
 │   ├── src/energyhub/
-│   │   ├── main.py            #    app FastAPI (/ , /health, CORS)
+│   │   ├── main.py            #    app FastAPI (/ , /health, CORS, auth JWT + 10 routers)
 │   │   ├── config/            #    settings.py · dependencies/  (pacote)
 │   │   ├── shared/            #    classes-base + util/ constant/ enums/
 │   │   ├── auth/  clients/  contracts/  negotiations/
@@ -287,18 +289,18 @@ curl http://localhost:8000/           # {"message": "EnergyHub API"}
 curl http://localhost:8000/health     # {"status": "healthy"}
 ```
 
-### 4. Migrações do banco _(Fase 4 ✅)_
+### 4. Migrações do banco _(Fases 4 e 7 ✅)_
 
 ```bash
 cd energyhub
-poetry run alembic upgrade head       # aplica as 8 migrações (15 tabelas + índices + constraints + seed)
-poetry run alembic current            # revisão atual (head = 0008)
+poetry run alembic upgrade head       # aplica as 9 migrações (15 tabelas + índices + constraints + seed + catálogo de permissões)
+poetry run alembic current            # revisão atual (head = 0009)
 poetry run alembic downgrade base     # reverte tudo
 ```
 
-O _seed_ cria um usuário **`admin`** (papel `ADMIN`) com senha de _bootstrap_ **`ChangeMe123!`** —
-**rotacione antes de qualquer uso real**. No Windows + Docker Desktop, se o driver não conectar do
-host, aplique o SQL dentro do container:
+O _seed_ cria um usuário **`admin`** (papel `ADMIN`, com **todas** as permissões) com senha de
+_bootstrap_ **`ChangeMe123!`** — **rotacione antes de qualquer uso real** (junto com o `SECRET_KEY`).
+No Windows + Docker Desktop, se o driver não conectar do host, aplique o SQL dentro do container:
 `poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
 
 ### 5. Qualidade de código
@@ -323,8 +325,10 @@ A partir da **Fase 8**, a documentação será curada (metadados, exemplos e _se
 com um **catálogo de erros** ([`docs/API_ERRORS.md`](docs/API_ERRORS.md)) e
 **exemplos de uso** ([`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)).
 
-**Autenticação _(a partir da Fase 7)_:** obtenha um token em `POST /api/v1/auth/login` e envie-o
-como `Authorization: Bearer <token>` nas rotas protegidas.
+**Autenticação _(Fase 7 ✅)_:** faça login em `POST /api/v1/auth/login` (ex.: `admin` /
+`ChangeMe123!`) e envie o token retornado como `Authorization: Bearer <token>` nas rotas protegidas.
+Sem token → **401**; token válido sem a permissão exigida pelo endpoint → **403**. O botão
+**Authorize** do Swagger (`/docs`) usa o esquema `HTTPBearer`.
 
 ---
 

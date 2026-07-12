@@ -64,6 +64,12 @@ disallow_untyped_defs = true
 module = "energyhub.*.infrastructure.persistence.*"
 disable_error_code = ["misc", "arg-type", "return-value", "attr-defined", "no-any-return"]
 
+# `python-jose` não publica stubs de tipos (nem `py.typed`); ignoramos a ausência de tipos da lib.
+# As funções `jwt.encode/decode` retornam `Any` — os tipos de retorno são fixados no `JwtService`.
+[[tool.mypy.overrides]]
+module = ["jose.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
 
