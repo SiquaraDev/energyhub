@@ -8,7 +8,7 @@ from energyhub.shared.domain.entity.base_entity import BaseEntity
 from energyhub.shared.domain.exception.validation_exception import ValidationException
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Report(BaseEntity):
     """Relatório gerado sob demanda (raiz do ReportAggregate).
 

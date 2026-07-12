@@ -1,15 +1,40 @@
-"""Base declarativa do SQLAlchemy e metadata compartilhada pelas migrações."""
+"""Configuração de persistência: Base declarativa, engine async e sessão.
+
+O `Base` ancora a `metadata`/`registry` usados pelo **mapeamento imperativo** das entidades
+(ver `mapping.py`): as entidades de domínio permanecem _dataclasses_ puras e são mapeadas às
+tabelas da Fase 4 sem importar SQLAlchemy, preservando a regra de dependência da Clean Architecture.
+"""
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
+
+from energyhub.config.settings import settings
 
 
 class Base(DeclarativeBase):
-    """Base declarativa compartilhada por todo o mapeamento ORM.
+    """Base declarativa compartilhada; sua `metadata`/`registry` ancora todo o mapeamento ORM.
 
-    Os modelos ORM concretos são adicionados na Fase 5 (Persistência). Nesta
-    fase, `Base.metadata` existe para servir de `target_metadata` ao Alembic —
-    as migrações da Fase 4 são escritas à mão (sem autogenerate), portanto a
-    metadata permanece vazia até os modelos serem mapeados.
+    As migrações (Fase 4) são a fonte de verdade do schema; os mapeamentos imperativos
+    (Fase 5) são reconciliados a elas, sem `--autogenerate`.
     """
+
+
+# Engine assíncrono único, ligado às settings (asyncpg). `echo` segue `settings.debug`.
+engine = create_async_engine(settings.database_url, echo=settings.debug, future=True)
+
+# Fábrica de sessões: `expire_on_commit=False` mantém os atributos acessíveis após o commit.
+async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """Dependência que cede uma `AsyncSession` e a fecha ao final (mesmo em exceção)."""
+    async with async_session_maker() as session:
+        yield session

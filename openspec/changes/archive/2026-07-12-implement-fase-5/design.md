@@ -23,10 +23,11 @@ A note on ordering: Fase 4 migrations conceptually target `Base.metadata`, but t
 
 ## Decisions
 
-**Entities are the ORM models (single-model persistence), not separate mapper classes:**
-- **Decision:** Map the Fase 3 domain entities directly with SQLAlchemy (e.g. `select(User).where(User.username == ...)`), all extending a shared mapped `BaseEntity`, rather than maintaining separate ORM models plus hand-written mappers.
-- **Rationale:** The Fase 5 plan and repository examples query the domain classes directly; a single model keeps the code small and matches the plan. SQLAlchemy 2.x typed `Mapped[...]` columns give static typing without a second class.
-- **Alternative considered:** Separate persistence models + domain↔model translation (hexagonal purity) — rejected for now; it doubles the class count and translation boilerplate with no consumer that needs the decoupling yet.
+**Single-model persistence via imperative (classical) mapping — preserving the pure domain:**
+- **Decision:** Keep the Fase 3 domain entities as **pure dataclasses** (no SQLAlchemy imports) and map them to the Fase 4 tables with **imperative mapping** (`registry.map_imperatively(User, users_table, ...)`) in `shared/infrastructure/persistence/mapping.py`. Repositories still query the entities directly (`select(User).where(User.username == ...)`) because the mapper instruments them at runtime. `configure_mappings()` runs at app startup (and in the test fixture) to register and resolve the mappers.
+- **Rationale:** A single model (no separate ORM classes) keeps the code small and matches the plan's direct-query examples, **while honoring the domain-purity rule established in Fase 3** (the domain MUST NOT import frameworks — enforced in the baseline and `ARCHITECTURE.md`). Entities also gain identity-based equality/hashing (`BaseEntity` `eq=False` + `__eq__`/`__hash__` by `id`) — the correct DDD semantics for entities and a requirement for ORM instances to be hashable.
+- **Trade-off:** mypy cannot see the runtime SQLAlchemy instrumentation on the dataclasses, so query expressions (`User.username == ...`, `.ilike`, `.is_`) trigger false positives; these are suppressed **only** in the persistence layer via a scoped `mypy` override, and that layer is covered by integration tests against the real schema.
+- **Alternatives considered:** (a) Declarative `Mapped[...]` columns on the entities — rejected: it forces SQLAlchemy into the domain, breaking purity (the original plan's premise that the entities "did not yet exist" no longer held). (b) Separate persistence models + domain↔model mappers (hexagonal) — rejected: doubles the class count and translation boilerplate with no consumer needing the decoupling yet.
 
 **Generic base repository parameterized by entity + id type:**
 - **Decision:** `SQLAlchemyRepository[T, ID]` holds the `AsyncSession` and entity type and implements `save`/`find_by_id`/`find_all`/`delete`/`exists_by_id`; concrete repositories subclass it and add finders.
@@ -54,7 +55,7 @@ A note on ordering: Fase 4 migrations conceptually target `Base.metadata`, but t
 
 ## Risks / Trade-offs
 
-- **Domain entities from Fase 3 are not yet materialized in code** → This phase assumes/creates the mapped entity classes; if Fase 3 has not been applied, the entity modules are established here as part of ORM mapping, matching the plan's "verify entities extend BaseEntity" step. Keep mappings aligned to the Fase 4 tables, which are the source of truth.
+- **Domain entities already exist as pure dataclasses (Fase 3)** → They are mapped here **without modification to their purity** (imperative mapping in infrastructure); the only domain change is `BaseEntity` adopting identity-based equality/hashing. Keep mappings aligned to the Fase 4 tables, which are the source of truth.
 - **ORM/migration drift** (types, nullability, names diverge from Fase 4) → Reconcile ORM to migrations, not the reverse; a mapping-vs-schema check (startup mapper resolution + integration tests against the real schema) catches divergence early.
 - **`find_all` / unbounded queries on large tables** → Prefer paginated methods for listing endpoints; treat `find_all` as an internal/small-set convenience, and default list APIs to pagination.
 - **`expire_on_commit=False` returns potentially stale attributes** → Acceptable trade-off for async ergonomics; callers that need fresh data re-query. Documented so it is a deliberate choice, not a surprise.

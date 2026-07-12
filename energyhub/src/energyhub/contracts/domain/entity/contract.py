@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from energyhub.clients.domain.entity.client import Client
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Contract(BaseEntity):
     """Contrato de energia (raiz do ContractAggregate)."""
 

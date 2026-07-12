@@ -52,13 +52,13 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 4 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 5 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o _scaffolding_ (**FastAPI + Poetry + PostgreSQL**) e o esqueleto
-> de **Clean Architecture com classes-base** já existem, o **primeiro teste de regressão** está
-> presente e o **CORS** está configurado. O **modelo de domínio DDD** (entidades, _value objects_,
-> enums e agregados) está implementado como **domínio puro** e o **schema PostgreSQL** já é
-> versionado por **migrações Alembic** (15 tabelas, índices, _constraints_, _triggers_ `updated_at`
-> e _seed_ do admin). **Próxima: Fase 5** (persistência: ORM & repositórios). Consulte o
+> de **Clean Architecture com classes-base** já existem, o **CORS** está configurado, o **modelo de
+> domínio DDD** está implementado como **domínio puro**, o **schema PostgreSQL** é versionado por
+> **migrações Alembic**, e a **camada de persistência** (ORM async + 13 repositórios + filtros +
+> paginação) já lê e grava as tabelas — mantendo o domínio puro via **mapeamento imperativo**.
+> **Próxima: Fase 6** (camadas de aplicação e apresentação — REST API). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -129,7 +129,8 @@ no guia **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 > ✅ **Implementado na Fase 3.** Entidades, _value objects_, enums e agregados já existem como
 > **domínio puro** — _dataclasses_ sem imports de framework, com validação no `__post_init__`. O
-> **mapeamento ORM** (SQLAlchemy) para essas entidades está previsto para a **Fase 5**.
+> **mapeamento ORM** (SQLAlchemy) foi implementado na **Fase 5** via **mapeamento imperativo**, que
+> persiste essas mesmas entidades **sem** acoplar o domínio ao framework.
 
 **Entidades** (por módulo):
 

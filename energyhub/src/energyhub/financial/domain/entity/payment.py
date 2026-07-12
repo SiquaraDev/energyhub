@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from energyhub.financial.domain.entity.invoice import Invoice
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Payment(BaseEntity):
     """Pagamento associado a uma fatura."""
 

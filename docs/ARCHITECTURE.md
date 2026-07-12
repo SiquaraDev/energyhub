@@ -1,13 +1,14 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–4)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–5)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 4 — Clean Architecture, Classes Base, Modelo de Domínio (DDD) e Schema do Banco**
-(versão `0.4.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md) define
-_como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que **de
-fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as **classes-base**
-já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_, enums e agregados)
-das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, suas **assinaturas reais** e
-como estendê-las nas próximas fases.
+**Fases 2 a 5 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco e
+Persistência** (versão `0.5.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
+**de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
+**classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
+enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, a **camada de
+persistência** (ORM async + repositórios) da Fase 5, suas **assinaturas reais** e como estendê-las nas
+próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -18,7 +19,7 @@ como estendê-las nas próximas fases.
 ## 🏛️ 1. Visão geral
 
 O EnergyHub segue **Clean Architecture** e **Domain-Driven Design (DDD)** sobre a stack
-**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 4, o código
+**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 5, o código
 Python está organizado assim:
 
 | Dimensão | Valor (as-built) |
@@ -32,14 +33,14 @@ Python está organizado assim:
 
 O `shared` é o único módulo **transversal**: não modela negócio, apenas fornece os blocos
 reutilizados por todos os demais. Os outros 8 módulos são de **negócio** e, a partir da Fase 3, têm
-a camada `domain` preenchida com **entidades, enums e agregados** (ver Seção 8);
-as camadas `application`, `infrastructure` e `presentation` permanecem como esqueleto, a serem
-preenchidas nas próximas fases.
+a camada `domain` preenchida com **entidades, enums e agregados** (ver Seção 8); na Fase 5, a
+`infrastructure/persistence` de cada módulo ganhou seu **repositório** (ver Seção 10). As camadas
+`application` e `presentation` permanecem como esqueleto, a serem preenchidas nas próximas fases.
 
 > 🧱 A anatomia interna é idêntica em todos os módulos: cada um repete as mesmas **4 camadas** e os
 > mesmos **sub-pacotes**. Na Fase 3, além do `shared`, a camada `domain` de cada módulo de negócio
-> passou a conter código; as demais camadas dos módulos de negócio ainda estão vazias (apenas a
-> estrutura de diretórios).
+> passou a conter código; na Fase 5, a `infrastructure/persistence` recebeu os repositórios (e os
+> filtros de `clients`/`contracts`). As demais camadas dos módulos de negócio seguem vazias.
 
 ---
 
@@ -148,7 +149,7 @@ cada camada. Caminhos relativos a `src/energyhub/`.
 | `BaseDTO` | `shared/application/dto/base_dto.py` | Campos comuns (opcionais) de transporte para DTOs | `@dataclass`; `id/created_at/updated_at` opcionais (`None`) |
 | `UseCase[Input, Output]` | `shared/application/usecase/usecase.py` | Contrato de caso de uso | `ABC`, `async execute(input_data: Input) -> Output` |
 | `ApplicationException` | `shared/application/exception/application_exception.py` | Erro da camada de aplicação (orquestração) | `__init__(message: str)`; expõe `.message`; `__str__` |
-| `SQLAlchemyRepository[T, ID]` | `shared/infrastructure/persistence/sqlalchemy_repository.py` | Implementação CRUD assíncrona de `Repository` | `__init__(session: AsyncSession, model_class: type[T])`; CRUD com `commit`/`refresh` |
+| `SQLAlchemyRepository[T, ID]` | `shared/infrastructure/persistence/sqlalchemy_repository.py` | Implementação CRUD assíncrona de `Repository` (Fase 5) | `__init__(session: AsyncSession, entity_type: type[T])`; `save` faz `flush` (não `commit`); + `find_by`/`find_page` |
 | `BaseRouter` | `shared/presentation/router/base_router.py` | Encapsula `APIRouter` padronizando prefixo/tags | `__init__(prefix: str = "", tags: list[str] | None = None)`; `get_router() -> APIRouter` |
 | `global_exception_handler` | `shared/presentation/exception/global_exception_handler.py` | Converte qualquer exceção não tratada em resposta 500 padronizada | `async (request: Request, exc: Exception) -> JSONResponse` |
 | `ErrorResponse` | `shared/presentation/response/error_response.py` | Corpo padronizado de erro da API | `@dataclass`; `timestamp: str`, `status: int`, `error: str`, `message: str`, `path: str` |
@@ -193,10 +194,10 @@ class SqlAlchemyClientRepository(SQLAlchemyRepository[ClientModel, UUID]):
     # herda save / find_by_id / find_all / delete_by_id / exists_by_id (todos async)
 ```
 
-> ⚠️ `SQLAlchemyRepository` assume que `model_class` possui uma coluna `id` e usa
-> `# type: ignore[attr-defined]` nos acessos a `.id`. A `Base` declarativa já existe desde a Fase 4
-> (`shared/infrastructure/persistence/database.py`); a tipagem será refinada quando os **modelos ORM**
-> forem mapeados sobre ela na **Fase 5**.
+> ⚠️ `SQLAlchemyRepository` recebe o `entity_type` e assume que a entidade mapeada possui coluna
+> `id`. Na Fase 5, o mapeamento é **imperativo** (ver Seção 10): a entidade continua uma _dataclass_
+> pura e o mapper a instrumenta em runtime — por isso o mypy não enxerga as colunas nas queries, e há
+> um _override_ de mypy escopado a `*.infrastructure.persistence.*`.
 
 ### 4.3 🧠 Criando um `UseCase`
 
@@ -458,7 +459,67 @@ sem erros de FK. Gates limpos: `ruff` / `black` / `mypy` (em `src` e `alembic`).
 
 ---
 
-## 🚀 10. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🗃️ 10. Persistência (Fase 5)
+
+A **Fase 5** (versão `0.5.0`) adicionou a camada de acesso a dados **async** sobre o schema da Fase 4,
+**sem** acoplar o domínio ao SQLAlchemy.
+
+### 10.1 🔌 Configuração (`shared/infrastructure/persistence/database.py`)
+
+- **`Base`** — `DeclarativeBase` cuja `metadata`/`registry` ancora o mapeamento.
+- **`engine`** — `create_async_engine(settings.database_url, echo=settings.debug)` (driver `asyncpg`).
+- **`async_session_maker`** — `async_sessionmaker(..., expire_on_commit=False)` (atributos seguem
+  acessíveis após o commit).
+- **`get_session()`** — dependência que cede uma `AsyncSession` e a fecha ao final.
+
+### 10.2 🧩 Mapeamento imperativo (domínio puro)
+
+As entidades da Fase 3 continuam _dataclasses_ **puras**. Em vez de torná-las modelos declarativos
+(o que traria SQLAlchemy para o domínio), o mapeamento é **imperativo** em
+`shared/infrastructure/persistence/mapping.py`:
+
+```python
+users_table = Table("users", metadata, Column("id", UUID, primary_key=True), ...)
+registry.map_imperatively(User, users_table, properties={
+    "roles": relationship(Role, secondary=user_roles_table, back_populates="users"),
+})
+```
+
+`configure_mappings()` registra os 13 mappers + associações e chama `configure_mappers()` no
+**startup** (em `main.py`) e nos testes. Depois disso, os repositórios consultam as entidades direto
+(`select(User).where(User.username == ...)`), pois o mapper as instrumenta.
+
+- **Igualdade por identidade:** para o ORM, `BaseEntity` usa `eq=False` + `__eq__`/`__hash__` por
+  `id` (semântica de _entidade_ em DDD; instâncias hasheáveis).
+- **Custo do mapeamento imperativo:** o mypy não enxerga a instrumentação nas _dataclasses_, então as
+  queries geram falsos positivos; suprimidos por um _override_ de mypy escopado a
+  `*.infrastructure.persistence.*` — o restante do código segue sob mypy estrito.
+- **Alinhamento com a Fase 4:** as `Table`s espelham as migrações (fonte de verdade); sem
+  `--autogenerate`.
+
+### 10.3 📚 Repositórios, filtros e paginação
+
+- **`SQLAlchemyRepository[T, ID]`** — CRUD genérico: `save` (add + **flush**, sem commit — a transação
+  pertence ao _use case_), `find_by_id`, `find_all`, `delete_by_id`, `exists_by_id`, além de
+  `find_by(*conditions)` e `find_page(offset, limit, *conditions) -> (conteúdo, total)`.
+- **13 repositórios concretos** (`<módulo>/infrastructure/persistence/`) — um por entidade, com
+  _finders_ específicos (ex.: `UserRepository.find_by_username`, `ClientRepository.find_by_cnpj`,
+  `ContractRepository.find_by_status`).
+- **Filtros componíveis** — `ClientFilter`/`ContractFilter` retornam condições SQLAlchemy;
+  `*.search(dto)` traduz um **DTO de filtro Pydantic** (`ClientFilterDTO`/`ContractFilterDTO`,
+  em `<módulo>/application/dto/`) em predicados combinados por `and_`.
+- **Paginação** (`shared/application/dto/`) — `PageRequest` (zero-based, `size` limitado a
+  `MAX_PAGE_SIZE`, `get_offset()`/`get_limit()`) e `PageResponse[T].create(...)` (calcula
+  `total_pages`/`first`/`last`). O repositório devolve `(conteúdo, total)` e a montagem do
+  `PageResponse` fica na aplicação — a infraestrutura não depende da aplicação.
+
+> 🧪 **Testes:** a suíte de integração roda contra o Postgres do Docker com isolamento por _rollback_
+> (o `save` faz _flush_, não _commit_). No Windows, conexões do host ao container falham; rode os
+> testes **dentro da rede do compose** (mesma abordagem da Fase 4).
+
+---
+
+## 🚀 11. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -473,8 +534,10 @@ Passo a passo curto, aproveitando o esqueleto já existente:
    Seção 8) servem de exemplo concreto desses padrões.
 3. **Application** — crie DTOs em `dto/` (estendendo `BaseDTO` quando fizer sentido), mapeadores em
    `mapper/`, e casos de uso em `usecase/` implementando `UseCase[Input, Output]`.
-4. **Infrastructure** — crie o modelo ORM e o repositório concreto em `persistence/`, estendendo
-   `SQLAlchemyRepository[T, ID]`.
+4. **Infrastructure** — adicione a `Table` + `registry.map_imperatively(...)` da entidade em
+   `shared/infrastructure/persistence/mapping.py` (mantendo o domínio puro) e crie o repositório
+   concreto em `<módulo>/infrastructure/persistence/`, estendendo `SQLAlchemyRepository[T, ID]`
+   (ver Seção 10).
 5. **Presentation** — crie o router em `router/` usando/estendendo `BaseRouter`, os _schemas_ em
    `request/`/`response/`, e registre o router na app (`main.py`).
 6. **Registre o `global_exception_handler`** na app quando começar a expor endpoints de negócio,
@@ -487,7 +550,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 11. Referências
+## 📚 12. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

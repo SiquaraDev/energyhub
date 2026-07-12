@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–4** (`0.0.0` → `0.4.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.5.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–5** (`0.0.0` → `0.5.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.6.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,10 +24,11 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **31 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **38 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
+- **Camada de persistência (Fase 5):** engine async + `get_session()`, **mapeamento imperativo** das 13 entidades (domínio segue puro), `SQLAlchemyRepository[T, ID]` + 13 repositórios concretos, filtros/DTOs de filtro e paginação (`PageRequest`/`PageResponse`), com testes de integração contra o Postgres do Docker.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -211,17 +212,21 @@ Entidades persistidas expostas como uma API REST documentada.
 
 ---
 
-## [0.5.0] — 🔮 Planejado · _Fase 5 · Persistência_
+## [0.5.0] — 2026-07-12 · ✅ Lançado · _Fase 5 · Persistência_
 
 Camada de acesso a dados async, tipada e testável sobre o schema da Fase 4.
 
 ### Adicionado
-- Configuração async do banco (engine, `async_sessionmaker` com `expire_on_commit=False`, dependência `get_session()`).
-- Mapeamento ORM de todas as entidades de domínio para suas tabelas (`Mapped[...]`), validado na inicialização.
-- `SQLAlchemyRepository[T, ID]` genérico com CRUD (`save` faz _flush_, não _commit_).
-- Um repositório concreto por entidade com _finders_ específicos.
-- Filtros/_specifications_ compostos, DTOs de filtro Pydantic e paginação genérica (`PageRequest`/`PageResponse`).
-- Testes de integração de CRUD, _finders_, filtros e paginação contra banco real.
+- Configuração async do banco em `shared/infrastructure/persistence/database.py` (engine `asyncpg`, `async_sessionmaker` com `expire_on_commit=False`, dependência `get_session()`).
+- **Mapeamento imperativo** (`registry.map_imperatively`) das 13 entidades às tabelas da Fase 4 em `mapping.py` — as entidades permanecem _dataclasses_ **puras** (sem SQLAlchemy no domínio); `configure_mappings()` resolve/valida os mappers no _startup_.
+- `SQLAlchemyRepository[T, ID]` genérico (`save` faz _flush_, não _commit_; `find_by_id`/`find_all`/`delete_by_id`/`exists_by_id`, além de `find_by`/`find_page`) e **13 repositórios** concretos com _finders_ (`find_by_username`, `find_by_cnpj`, `search_by_name`, …).
+- Filtros componíveis (`ClientFilter`, `ContractFilter`) e DTOs de filtro Pydantic (`ClientFilterDTO`, `ContractFilterDTO`); paginação genérica `PageRequest`/`PageResponse` (zero-based, `size` limitado a `MAX_PAGE_SIZE`).
+- Testes de integração (CRUD, _finder_, filtro e paginação) contra o Postgres do Docker, com isolamento por _rollback_.
+
+### Alterado
+- `BaseEntity` passou a usar **igualdade por identidade** (`eq=False` + `__eq__`/`__hash__` por `id`) — semântica correta de _entidade_ em DDD e requisito para o mapeamento ORM (instâncias hasheáveis).
+- `SQLAlchemyRepository.save` deixou de fazer `commit`/`refresh` (Fase 2) e passou a fazer apenas `add` + `flush`, delegando a fronteira transacional ao _use case_ (Fase 6).
+- _Override_ de `mypy` escopado à camada de persistência (`*.infrastructure.persistence.*`): o mapeamento imperativo torna a instrumentação do SQLAlchemy invisível ao mypy, gerando falsos positivos nas queries; o restante do código segue sob mypy estrito.
 
 ---
 

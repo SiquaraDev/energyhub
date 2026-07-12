@@ -3,6 +3,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from energyhub.shared.infrastructure.persistence.mapping import configure_mappings
+
+# Registra e resolve os mappers ORM (Fase 5) no import da app, de modo que qualquer
+# erro de mapeamento/relacionamento apareça imediatamente no startup.
+configure_mappings()
+
 app = FastAPI(
     title="EnergyHub",
     description="Energy Trading Platform",

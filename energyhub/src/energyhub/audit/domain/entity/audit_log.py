@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from energyhub.auth.domain.entity.user import User
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class AuditLog(BaseEntity):
     """Registro de auditoria de uma ação realizada por um usuário sobre uma entidade."""
 

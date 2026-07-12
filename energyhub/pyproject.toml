@@ -54,6 +54,15 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
+# Mapeamento imperativo (Fase 5): as entidades de domínio são dataclasses puras, então o mypy
+# não enxerga os atributos instrumentados pelo SQLAlchemy (ex.: em runtime `User.username` vira
+# um ColumnElement). Nas queries dos repositórios/filtros isso gera falsos positivos [misc]/
+# [arg-type]. Silenciados APENAS na camada de persistência, que é validada por testes de
+# integração contra o banco real; o restante do código segue sob mypy estrito.
+[[tool.mypy.overrides]]
+module = "energyhub.*.infrastructure.persistence.*"
+disable_error_code = ["misc", "arg-type", "return-value", "attr-defined", "no-any-return"]
+
 [tool.ruff]
 line-length = 100
 

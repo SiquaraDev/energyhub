@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from energyhub.auth.domain.entity.user import User
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Role(BaseEntity):
     """Papel (perfil de acesso) que agrupa permissões e é atribuído a usuários."""
 

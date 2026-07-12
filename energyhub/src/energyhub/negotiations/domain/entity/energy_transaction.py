@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from energyhub.negotiations.domain.entity.negotiation import Negotiation
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class EnergyTransaction(BaseEntity):
     """Transação de energia (compra/venda) pertencente a uma negociação."""
 

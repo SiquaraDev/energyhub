@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from energyhub.auth.domain.entity.role import Role
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class User(BaseEntity):
     """Usuário do sistema (raiz do AuthAggregate)."""
 

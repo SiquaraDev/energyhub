@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from energyhub.contracts.domain.entity.contract import Contract
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Negotiation(BaseEntity):
     """Negociação vinculada a um contrato (raiz do NegotiationAggregate)."""
 

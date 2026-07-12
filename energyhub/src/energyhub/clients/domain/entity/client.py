@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from energyhub.clients.domain.entity.contact import Contact
 
 
-@dataclass(kw_only=True)
+@dataclass(kw_only=True, eq=False)
 class Client(BaseEntity):
     """Cliente do sistema (raiz do ClientAggregate)."""
 
