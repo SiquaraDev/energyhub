@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–5** (`0.0.0` → `0.5.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.6.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–6** (`0.0.0` → `0.6.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.7.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,11 +24,12 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **38 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **45 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
 - **Camada de persistência (Fase 5):** engine async + `get_session()`, **mapeamento imperativo** das 13 entidades (domínio segue puro), `SQLAlchemyRepository[T, ID]` + 13 repositórios concretos, filtros/DTOs de filtro e paginação (`PageRequest`/`PageResponse`), com testes de integração contra o Postgres do Docker.
+- **API REST (Fase 6):** camadas de aplicação e apresentação — DTOs/mappers/services/use-cases/exceções e **10 routers (25 endpoints)** sob `/api/v1/`, auto-documentados em `/docs`; handler de exceções domínio→HTTP; `auth` com M2M e hash bcrypt.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -198,16 +199,25 @@ Identidade verificada por JWT e acesso controlado por papéis/permissões.
 
 ---
 
-## [0.6.0] — 🔮 Planejado · _Fase 6 · REST API_
+## [0.6.0] — 2026-07-12 · ✅ Lançado · _Fase 6 · REST API_
 
-Entidades persistidas expostas como uma API REST documentada.
+Entidades persistidas expostas como uma API REST documentada (Clean Architecture: DTO → mapper → service → use case → router).
 
 ### Adicionado
-- DTOs de request/response Pydantic por módulo (auth, clients, contracts, negotiations, financial) com _constraints_ e metadados OpenAPI.
-- Validadores reutilizáveis (ex.: `CnpjValidator`) e _mappers_ entidade ↔ DTO por módulo.
-- Hierarquia de exceções de domínio (não-encontrado / já-existe / estado-inválido) mapeada para HTTP 404/409/422.
-- Serviços de aplicação (regras de negócio, hashing de senha, resolução de papéis) sobre os repositórios da Fase 5.
-- Use cases (`UseCase[Input, Output]`) e routers REST (CRUD + listagem paginada) registrados em `main:app`.
+- DTOs de request/response Pydantic por módulo (auth, clients, contracts, negotiations, financial, audit, notifications, reports) com _constraints_ e metadados OpenAPI; os DTOs de resposta estendem `BaseDTO` e representam relações aninhadas como DTOs próprios.
+- Validadores reutilizáveis em `shared/application/validation/` (`validate_cnpj`, `validate_email`, `validate_non_empty`) aplicados via `@field_validator`, e _mappers_ entidade ↔ DTO por módulo.
+- Hierarquia de exceções de domínio por módulo (não-encontrado / já-existe) sobre as bases compartilhadas, com um **handler central** (`shared/presentation`) traduzindo `DomainException` em HTTP **404/409/422**.
+- Serviços de aplicação (regras de negócio, unicidade, hashing de senha **bcrypt**, resolução de `role_ids`/`permission_ids`) sobre os repositórios da Fase 5, e _use cases_ (`UseCase[Input, Output]`).
+- **10 routers / 25 endpoints REST** (`/api/v1/...`, CRUD + listagem paginada + sub-recursos: contatos, pagamentos, transações), registrados em `energyhub.main:app`, com metadados OpenAPI (`/docs`, `/redoc`) e título/versão da API.
+- Utilitário de hashing de senha (`shared/infrastructure/security/password_hasher.py`) com `bcrypt` e dependência `bcrypt` declarada.
+
+### Alterado
+- `BaseDTO` e `PageResponse` migrados de _dataclass_ para **Pydantic** (herança de auditoria com `from_attributes`; `PageResponse` como `response_model` das listagens).
+- No mapeamento ORM (Fase 5), as relações de **navegação** (many-to-one e `Client.contacts`) passaram a `viewonly=True` — as escritas ocorrem só pela FK; sem isso o _flush_ zerava a FK. Escritas M2M (papéis/permissões) usam a relação real.
+- `get_session()` passou a **commitar na borda** da requisição (e `rollback` em erro), fechando a unidade de trabalho iniciada na Fase 5.
+
+### Segurança
+- Senha do usuário é hasheada no serviço (bcrypt) e **nunca** exposta nos DTOs de resposta.
 - Documentação Swagger (`/docs`) e ReDoc (`/redoc`).
 
 ---

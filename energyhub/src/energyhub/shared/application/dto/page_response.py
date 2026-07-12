@@ -1,19 +1,22 @@
-"""DTO genérico de resposta paginada."""
+"""DTO genérico de resposta paginada (Pydantic, serializável pela API)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict
 
 T = TypeVar("T")
 
 
-@dataclass
-class PageResponse(Generic[T]):
+class PageResponse(BaseModel, Generic[T]):
     """Página de resultados + metadados (zero-based).
 
-    Use `PageResponse.create(...)` para calcular `total_pages`, `first` e `last`.
+    Use `PageResponse.create(...)` para calcular `total_pages`, `first` e `last`. É um modelo
+    Pydantic para servir de `response_model` nos endpoints de listagem (Fase 6).
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     content: list[T]
     page: int

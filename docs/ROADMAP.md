@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 5
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.5.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 6 — Camadas de Aplicação e
-> Apresentação (REST API)**. As **Fases 6–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 6
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.6.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 7 — Autenticação e Autorização
+> RBAC**. As **Fases 7–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -167,14 +167,16 @@ _Como implementado:_ **mapeamento imperativo** (`registry.map_imperatively`) em 
 
 ## 🌐 Etapa 3 — API & Segurança
 
-### 📋 Fase 6 — Camadas de Aplicação e Apresentação (REST API) · `0.6.0`
+### ✅ Fase 6 — Camadas de Aplicação e Apresentação (REST API) · `0.6.0` _(concluída)_
 **Objetivo:** transformar as entidades persistidas em uma API REST documentada e chamável.
 
 **Entregáveis:**
-- `request-response-dtos` · `input-validation` (ex.: `CnpjValidator`) · `entity-dto-mappers`
+- `request-response-dtos` · `input-validation` (validadores reutilizáveis de CNPJ/e-mail/não-vazio) · `entity-dto-mappers`
 - `domain-exceptions` — hierarquia (não-encontrado / já-existe / estado-inválido) mapeada para HTTP (404/409/422)
 - `application-services` · `use-case-orchestration` (contrato `UseCase[Input, Output]`)
 - `rest-api-endpoints` — routers CRUD + listagem paginada, auto-documentados (Swagger/ReDoc)
+
+_Como implementado:_ **10 routers / 25 endpoints** (`/api/v1/...`) sobre a cadeia **DTO→mapper→service→use-case**; DTOs Pydantic (resposta estende `BaseDTO`, `from_attributes`), validadores compartilhados aplicados via `@field_validator`, e **handler central** que traduz exceções de domínio em HTTP (404/409/422). `auth` com **M2M** (papéis/permissões aninhados via `selectin`; senha **bcrypt**, nunca exposta); sub-recursos (contatos, pagamentos, transações) com a FK vinda do path. Ajustes de fundação: `BaseDTO`/`PageResponse` migrados para **Pydantic**, relações de navegação do ORM como **`viewonly`** e `get_session` passa a **commitar na borda** da requisição. Verificado com **ruff / black / mypy (384) limpos** + **2 E2E HTTP** cobrindo os 8 módulos e os erros 404/409/422 contra o Postgres do Docker.
 
 ### 📋 Fase 7 — Autenticação e Autorização RBAC · `0.7.0`
 **Objetivo:** proteger a API com login por JWT e controle de acesso por papéis/permissões.

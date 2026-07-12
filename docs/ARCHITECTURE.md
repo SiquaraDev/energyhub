@@ -1,14 +1,14 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–5)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–6)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 5 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco e
-Persistência** (versão `0.5.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 6 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência e API REST** (versão `0.6.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
 enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, a **camada de
-persistência** (ORM async + repositórios) da Fase 5, suas **assinaturas reais** e como estendê-las nas
-próximas fases.
+persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, serviços, use cases e
+routers) da Fase 6, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -19,7 +19,7 @@ próximas fases.
 ## 🏛️ 1. Visão geral
 
 O EnergyHub segue **Clean Architecture** e **Domain-Driven Design (DDD)** sobre a stack
-**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 5, o código
+**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 6, o código
 Python está organizado assim:
 
 | Dimensão | Valor (as-built) |
@@ -28,19 +28,20 @@ Python está organizado assim:
 | **Módulos** | **9**: `shared`, `auth`, `clients`, `contracts`, `negotiations`, `financial`, `audit`, `notifications`, `reports` |
 | **Camadas por módulo** | **4**: `domain`, `application`, `infrastructure`, `presentation` |
 | **Classes-base** | Concentradas em `shared`, uma para cada bloco fundamental das 4 camadas |
-| **App FastAPI** | `src/energyhub/main.py` — expõe `/` e `/health`, com CORS de desenvolvimento |
+| **App FastAPI** | `src/energyhub/main.py` — `/`, `/health` e **10 routers** REST (`/api/v1/…`, 25 endpoints), CORS, handler de exceções, `/docs`·`/redoc` |
 | **Configuração** | `config/` é **pacote** (não módulo único): `settings.py` + `dependencies/` |
 
 O `shared` é o único módulo **transversal**: não modela negócio, apenas fornece os blocos
 reutilizados por todos os demais. Os outros 8 módulos são de **negócio** e, a partir da Fase 3, têm
 a camada `domain` preenchida com **entidades, enums e agregados** (ver Seção 8); na Fase 5, a
-`infrastructure/persistence` de cada módulo ganhou seu **repositório** (ver Seção 10). As camadas
-`application` e `presentation` permanecem como esqueleto, a serem preenchidas nas próximas fases.
+`infrastructure/persistence` de cada módulo ganhou seu **repositório** (ver Seção 10); na Fase 6, as
+camadas `application` (DTOs, mappers, services, use cases) e `presentation` (routers) foram
+preenchidas (ver Seção 11). As **4 camadas** estão agora ativas nos módulos de negócio.
 
 > 🧱 A anatomia interna é idêntica em todos os módulos: cada um repete as mesmas **4 camadas** e os
-> mesmos **sub-pacotes**. Na Fase 3, além do `shared`, a camada `domain` de cada módulo de negócio
-> passou a conter código; na Fase 5, a `infrastructure/persistence` recebeu os repositórios (e os
-> filtros de `clients`/`contracts`). As demais camadas dos módulos de negócio seguem vazias.
+> mesmos **sub-pacotes**. Na Fase 3 a camada `domain` passou a conter código; na Fase 5 a
+> `infrastructure/persistence` recebeu os repositórios/filtros; na Fase 6 `application` e
+> `presentation` receberam DTOs/mappers/services/use-cases e routers REST.
 
 ---
 
@@ -519,7 +520,66 @@ registry.map_imperatively(User, users_table, properties={
 
 ---
 
-## 🚀 11. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🌐 11. Aplicação & Apresentação — API REST (Fase 6)
+
+A **Fase 6** (versão `0.6.0`) preencheu as camadas `application` e `presentation` de cada módulo,
+expondo as entidades persistidas como uma **API REST** documentada. O fluxo por módulo é uma cadeia
+de responsabilidades:
+
+```
+Router (HTTP) → UseCase (orquestração) / Service (regras) → Mapper (entidade↔DTO) → Repository (Fase 5)
+```
+
+### 11.1 🧱 As cinco peças
+
+| Peça | Local | Papel |
+| :--- | :---- | :---- |
+| **Request/Response DTO** | `<módulo>/application/dto/` | Pydantic. _Request_ estende `BaseModel`; _response_ estende `BaseDTO` (auditoria + `from_attributes`). Relações são **DTOs aninhados** (ex.: `UserResponseDTO.roles`). |
+| **Validators** | `shared/application/validation/validators.py` | `validate_cnpj`/`validate_email`/`validate_non_empty`, aplicados nos DTOs via `@field_validator`. |
+| **Mapper** | `<módulo>/application/mapper/` | `to_entity(dto)` e `to_response_dto(entity)` (= `ResponseDTO.model_validate(entity)`). Ponto único de tradução. |
+| **Service** | `<módulo>/application/service/` | Regras de negócio: unicidade, hashing de senha, resolução de ids, CRUD paginado. Faz `flush` via repositório; nunca `commit`. |
+| **Use Case** | `<módulo>/application/usecase/` | `UseCase[Input, Output]` fino, delega ao service (ex.: `CreateUserUseCase`). |
+| **Router** | `<módulo>/presentation/router/` | `BaseRouter` sob `/api/v1/<recurso>`; endpoints com _providers_ `Depends(get_session)` → repositório → service. |
+
+`BaseDTO` e `PageResponse` foram migrados de _dataclass_ para **Pydantic** nesta fase (herança de
+auditoria e uso como `response_model` nas listagens).
+
+### 11.2 🔀 Exceções → HTTP e a unidade de trabalho
+
+- **Exceções de domínio** por módulo (`<módulo>/domain/exception/`) estendem as bases compartilhadas:
+  _not-found_ → `ResourceNotFoundException`, _already-exists_ → `BusinessRuleException`,
+  _invalid_ → `ValidationException`. Um **handler central**
+  (`shared/presentation/exception/domain_exception_handler.py`), registrado para `DomainException`,
+  traduz por tipo em **404 / 409 / 422** (com `ErrorResponse` padronizado).
+- **Transação na borda:** `get_session()` (Fase 5) agora faz `commit` ao final da requisição e
+  `rollback` em erro. Como os serviços só dão `flush`, várias operações de um request compõem **uma
+  transação** (a fronteira da unidade de trabalho fica no `get_session`).
+
+### 11.3 ⚠️ Padrões impostos pelo ORM async
+
+Como as entidades são _dataclasses_ puras mapeadas imperativamente (Fase 5), a Fase 6 fixou alguns
+padrões para evitar armadilhas do async + relações:
+
+- **Respostas usam FK ids, não objetos-pai aninhados** (ex.: `ContractResponseDTO.client_id`, sem
+  `client`). Coleções **filhas** aparecem aninhadas (contatos, papéis) e são carregadas por
+  `lazy="selectin"`.
+- **Relações de navegação são `viewonly=True`** no mapeamento; escritas de FK ocorrem só pela coluna
+  (ex.: `Contact(client_id=...)`). Sem isso o _flush_ zerava a FK (`UPDATE→NULL`). Escritas **M2M**
+  (papéis/permissões) usam a relação real.
+- **Sub-recursos** (`/clients/{id}/contacts`, `/invoices/{id}/payments`,
+  `/negotiations/{id}/transactions`) recebem a FK do **path**: `service.create(parent_id, dto)`.
+- **Segurança:** a senha do usuário é hasheada no service (`shared/infrastructure/security/`,
+  `bcrypt`) e **nunca** exposta em DTO de resposta.
+
+### 11.4 🗺️ Superfície da API (10 routers · 25 endpoints)
+
+`/api/v1/` → `users` · `roles` · `permissions` (auth) · `clients` (+ `/{id}/contacts`) · `contracts` ·
+`negotiations` (+ `/{id}/transactions`) · `invoices` (+ `/{id}/payments`) · `audit-logs`
+(append-only) · `notifications` · `reports`. Documentação interativa em **`/docs`** e **`/redoc`**.
+
+---
+
+## 🚀 12. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -550,7 +610,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 12. Referências
+## 📚 13. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

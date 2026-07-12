@@ -335,7 +335,11 @@ def configure_mappings() -> None:
         Role,
         roles_table,
         properties={
-            "permissions": relationship(Permission, secondary=role_permissions_table),
+            # lazy="selectin": carrega as coleções junto (eager, seguro em async) para o
+            # mapeamento de DTOs de resposta aninhados (Fase 6) funcionar sem lazy-load.
+            "permissions": relationship(
+                Permission, secondary=role_permissions_table, lazy="selectin"
+            ),
             "users": relationship(User, secondary=user_roles_table, back_populates="roles"),
         },
     )
@@ -343,37 +347,48 @@ def configure_mappings() -> None:
         User,
         users_table,
         properties={
-            "roles": relationship(Role, secondary=user_roles_table, back_populates="users"),
+            "roles": relationship(
+                Role, secondary=user_roles_table, back_populates="users", lazy="selectin"
+            ),
         },
     )
+    # `viewonly=True`: a relação é APENAS para leitura (DTOs aninhados via `lazy="selectin"`).
+    # A FK `contacts.client_id` é escrita exclusivamente pelo `ContactRepository` (insert direto).
+    # Sem viewonly, o processador one-to-many desta relação zerava a FK de contatos recém-
+    # carregados durante o autoflush (UPDATE→NULL). Escritas de contato nunca passam por aqui.
     registry.map_imperatively(
         Client,
         clients_table,
-        properties={"contacts": relationship(Contact, back_populates="client")},
+        properties={"contacts": relationship(Contact, lazy="selectin", viewonly=True)},
+    )
+    registry.map_imperatively(Contact, contacts_table)
+    # Relações many-to-one `viewonly=True`: as FKs (`client_id`, `contract_id`, ...) são
+    # escritas diretamente pelas entidades/repositórios; estas relações servem só para
+    # navegação de leitura. Sem viewonly, o default `None` da dataclass zerava a FK no flush.
+    registry.map_imperatively(
+        Contract, contracts_table, properties={"client": relationship(Client, viewonly=True)}
     )
     registry.map_imperatively(
-        Contact,
-        contacts_table,
-        properties={"client": relationship(Client, back_populates="contacts")},
-    )
-    registry.map_imperatively(
-        Contract, contracts_table, properties={"client": relationship(Client)}
-    )
-    registry.map_imperatively(
-        Negotiation, negotiations_table, properties={"contract": relationship(Contract)}
+        Negotiation,
+        negotiations_table,
+        properties={"contract": relationship(Contract, viewonly=True)},
     )
     registry.map_imperatively(
         EnergyTransaction,
         energy_transactions_table,
-        properties={"negotiation": relationship(Negotiation)},
+        properties={"negotiation": relationship(Negotiation, viewonly=True)},
     )
-    registry.map_imperatively(Invoice, invoices_table, properties={"client": relationship(Client)})
     registry.map_imperatively(
-        Payment, payments_table, properties={"invoice": relationship(Invoice)}
+        Invoice, invoices_table, properties={"client": relationship(Client, viewonly=True)}
     )
-    registry.map_imperatively(AuditLog, audit_logs_table, properties={"user": relationship(User)})
     registry.map_imperatively(
-        Notification, notifications_table, properties={"user": relationship(User)}
+        Payment, payments_table, properties={"invoice": relationship(Invoice, viewonly=True)}
+    )
+    registry.map_imperatively(
+        AuditLog, audit_logs_table, properties={"user": relationship(User, viewonly=True)}
+    )
+    registry.map_imperatively(
+        Notification, notifications_table, properties={"user": relationship(User, viewonly=True)}
     )
     registry.map_imperatively(Report, reports_table)
 

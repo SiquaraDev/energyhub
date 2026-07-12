@@ -35,6 +35,16 @@ async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """Dependência que cede uma `AsyncSession` e a fecha ao final (mesmo em exceção)."""
+    """Dependência de sessão por requisição (unidade de trabalho).
+
+    Cede uma `AsyncSession`, faz `commit` ao final se nada falhar e `rollback` em caso de
+    exceção. Como os repositórios fazem `flush` (não `commit`), a fronteira transacional fica
+    aqui: várias operações num mesmo request compõem uma única transação.
+    """
     async with async_session_maker() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
