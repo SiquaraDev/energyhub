@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 14
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.14.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 15 — Decomposição em Microsserviços**.
-> As **Fases 15–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 15
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.15.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 16 — Orquestração com Kubernetes**.
+> As **Fases 16–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -369,7 +369,7 @@ existente. Credenciais/`SECRET_KEY` são placeholders de desenvolvimento a rotac
 
 ## 🚀 Etapa 6 — Distribuição & Entrega
 
-### 📋 Fase 15 — Decomposição em Microsserviços e API Gateway · `0.15.0` ⚠️ _breaking_
+### ✅ Fase 15 — Decomposição em Microsserviços e API Gateway · `0.15.0` ⚠️ _breaking_ _(concluída)_
 **Objetivo:** dividir o monólito modular em serviços FastAPI independentemente implantáveis, comunicando-se pela rede.
 
 **Entregáveis:**
@@ -378,6 +378,28 @@ existente. Credenciais/`SECRET_KEY` são placeholders de desenvolvimento a rotac
 - `api-gateway-routing` (Traefik por prefixo de path)
 
 > ⚠️ **Mudança _breaking_:** o ponto de entrada único é substituído por serviços independentes atrás do _gateway_; chamadas entre módulos viram chamadas de rede e **cada serviço passa a ter seu próprio banco**.
+
+_Como implementado:_ decomposição documentada em [`docs/bounded-contexts.md`](./bounded-contexts.md)
+(inventário módulo→contexto→serviço + DAG de dependências + ordem de extração). **5 serviços FastAPI
+independentes** em `services/<nome>-service/` (auth `:8001`, client `:8002`, contract `:8003`, financial
+`:8004`, audit `:8005`), cada um com `pyproject.toml`/`Dockerfile`/`config.py`/`main.py` próprios, um
+`mapping.py` **enxuto** (só as tabelas do serviço; referências cross-context viram UUID sem FK) e o seu
+**banco dedicado** (`authdb`/`clientdb`/...). **Consul** (service discovery): cada serviço se registra no
+startup com health check HTTP (`register_with_consul`, via API HTTP do Consul) e é resolvido por nome.
+**Comunicação HTTP** (`httpx`): `AuthClient`/`ClientClient`/`ContractClient` substituem as chamadas
+in-process — notadamente o `get_current_user` dos serviços downstream, que valida o JWT e resolve o
+usuário via `auth-service` (endpoints internos `/internal/users/...`). **Resiliência** (`ServiceClient`
+base): timeout explícito + retry com backoff exponencial (`tenacity`) + **fallback** `None` + `close`
+dos pools no shutdown. **Traefik** (gateway): provider **Consul-catalog** monta as rotas a partir das
+tags de cada serviço, roteando por prefixo de caminho, com middlewares de borda (**rate limit**,
+**access log** e **forwardAuth** → `auth-service`). Verificado na stack real (16 containers): os **5
+serviços registram no Consul com health passing**; chamadas cross-service (cliente/contrato/fatura)
+retornam **201** validando o token via `AuthClient`; com o auth-service **derrubado**, uma chamada
+dependente degrada para **401 contido** (retries + fallback, sem cascata); e o **gateway** (`:80`) roteia
+login→auth, `/clients`→client, `/contracts`→contract, bloqueando na borda requisições sem token (**401**).
+Reconciliações: registro no Consul via **API HTTP** (`httpx`) em vez de `python-consul`; roteamento via
+**Consul-catalog** (o provider Docker do Traefik não alcança o daemon no Windows). Placeholders de
+credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
 ### 📋 Fase 16 — Orquestração com Kubernetes · `0.16.0`
 **Objetivo:** declarar toda a topologia como manifestos Kubernetes — serviços distribuídos, auto-recuperáveis, com autoscaling e um único ponto de entrada externo.

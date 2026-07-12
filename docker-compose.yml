@@ -169,6 +169,218 @@ services:
     networks:
       - energyhub-network
 
+  # Service discovery — Consul (registro + health checks + resolução por nome) — Fase 15.
+  consul:
+    image: hashicorp/consul:1.19
+    container_name: energyhub-consul
+    restart: unless-stopped
+    command: agent -server -bootstrap -ui -client=0.0.0.0
+    ports:
+      - "8500:8500"       # UI + HTTP API
+      - "8600:8600/udp"   # DNS
+    volumes:
+      - consul_data:/consul/data
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - energyhub-network
+
+  # ===== Microsserviços (Fase 15) — cada um dono do seu banco, registrado no Consul =====
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    image: energyhub-auth-service:latest
+    container_name: energyhub-auth-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      APP_PORT: "8001"
+      SERVICE_HOST: auth-service
+      CONSUL_HOST: consul
+      CONSUL_PORT: "8500"
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/authdb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
+      SECRET_KEY: change-me-in-production      # placeholder — rotacionar antes de produção
+      ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`) || PathPrefix(`/api/v1/permissions`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.routers.auth.middlewares=eh-ratelimit"
+      - "traefik.http.services.auth.loadbalancer.server.port=8001"
+      # Middlewares de borda (definidos aqui; aplicáveis por qualquer router):
+      - "traefik.http.middlewares.eh-ratelimit.ratelimit.average=100"
+      - "traefik.http.middlewares.eh-ratelimit.ratelimit.burst=50"
+      - "traefik.http.middlewares.eh-auth.forwardauth.address=http://auth-service:8001/internal/auth/verify"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    networks:
+      - energyhub-network
+
+  client-service:
+    build:
+      context: ./services/client-service
+      dockerfile: Dockerfile
+    image: energyhub-client-service:latest
+    container_name: energyhub-client-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      APP_PORT: "8002"
+      SERVICE_HOST: client-service
+      CONSUL_HOST: consul
+      CONSUL_PORT: "8500"
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/clientdb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
+      SECRET_KEY: change-me-in-production      # mesma chave do Auth (valida o JWT)
+      ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.clients.rule=PathPrefix(`/api/v1/clients`)"
+      - "traefik.http.routers.clients.entrypoints=web"
+      - "traefik.http.routers.clients.middlewares=eh-ratelimit,eh-auth"
+      - "traefik.http.services.clients.loadbalancer.server.port=8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - energyhub-network
+
+  contract-service:
+    build:
+      context: ./services/contract-service
+      dockerfile: Dockerfile
+    image: energyhub-contract-service:latest
+    container_name: energyhub-contract-service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      APP_PORT: "8003"
+      SERVICE_HOST: contract-service
+      CONSUL_HOST: consul
+      CONSUL_PORT: "8500"
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/contractdb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SECRET_KEY: change-me-in-production
+      ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.contracts.rule=PathPrefix(`/api/v1/contracts`)"
+      - "traefik.http.routers.contracts.entrypoints=web"
+      - "traefik.http.routers.contracts.middlewares=eh-ratelimit,eh-auth"
+      - "traefik.http.services.contracts.loadbalancer.server.port=8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    networks:
+      - energyhub-network
+
+  financial-service:
+    build:
+      context: ./services/financial-service
+      dockerfile: Dockerfile
+    image: energyhub-financial-service:latest
+    container_name: energyhub-financial-service
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      APP_PORT: "8004"
+      SERVICE_HOST: financial-service
+      CONSUL_HOST: consul
+      CONSUL_PORT: "8500"
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/financialdb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SECRET_KEY: change-me-in-production
+      ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.invoices.rule=PathPrefix(`/api/v1/invoices`)"
+      - "traefik.http.routers.invoices.entrypoints=web"
+      - "traefik.http.routers.invoices.middlewares=eh-ratelimit,eh-auth"
+      - "traefik.http.services.invoices.loadbalancer.server.port=8004"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      kafka: {condition: service_healthy}
+      consul: {condition: service_healthy}
+      auth-service: {condition: service_started}
+    networks:
+      - energyhub-network
+
+  audit-service:
+    build:
+      context: ./services/audit-service
+      dockerfile: Dockerfile
+    image: energyhub-audit-service:latest
+    container_name: energyhub-audit-service
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      APP_PORT: "8005"
+      SERVICE_HOST: audit-service
+      CONSUL_HOST: consul
+      CONSUL_PORT: "8500"
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/auditdb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
+      SECRET_KEY: change-me-in-production
+      ENVIRONMENT: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.audit.rule=PathPrefix(`/api/v1/audit-logs`)"
+      - "traefik.http.routers.audit.entrypoints=web"
+      - "traefik.http.routers.audit.middlewares=eh-ratelimit,eh-auth"
+      - "traefik.http.services.audit.loadbalancer.server.port=8005"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      consul: {condition: service_healthy}
+      auth-service: {condition: service_started}
+    networks:
+      - energyhub-network
+
   # Observabilidade — Prometheus (coleta/armazenamento de métricas) — Fase 12.
   # Agora a API roda na stack; o Prometheus a scrapeia por nome de serviço (energyhub-api:8000).
   prometheus:
@@ -224,6 +436,26 @@ services:
     networks:
       - energyhub-network
 
+  # API Gateway — Traefik (Fase 15). Ponto de entrada único; roteia por prefixo de caminho via
+  # providers Docker + Consul-catalog; aplica middlewares de borda (logging, rate limit, forwardAuth).
+  traefik:
+    image: traefik:v3.1
+    container_name: energyhub-traefik
+    restart: unless-stopped
+    command:
+      - "--configfile=/etc/traefik/traefik.yml"
+    ports:
+      - "80:80"       # gateway (entrada única externa)
+      - "8090:8080"   # dashboard do Traefik (dev)
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      consul:
+        condition: service_healthy
+    networks:
+      - energyhub-network
+
 networks:
   energyhub-network:
     name: energyhub-network
@@ -236,3 +468,4 @@ volumes:
   elasticsearch_data:
   prometheus_data:
   grafana_data:
+  consul_data:

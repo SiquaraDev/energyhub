@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 14 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 15 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -72,8 +72,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > via Testcontainers + API via `TestClient`). Por fim, a **própria aplicação está containerizada**
 > (`Dockerfile` multi-stage, não-root) e **toda a stack sobe com um comando** (`docker compose up -d`):
 > API + Postgres/Redis/RabbitMQ/Kafka/Elasticsearch/Prometheus/Grafana numa rede compartilhada, com
-> health checks, ordem de inicialização e volumes nomeados.
-> **Próxima: Fase 15** (decomposição em microsserviços). Consulte o
+> health checks, ordem de inicialização e volumes nomeados. E, por fim, o monólito foi **decomposto em
+> microsserviços** (⚠️ _breaking_): **auth/client/contract/financial/audit** como serviços FastAPI
+> independentes (banco por serviço), com **service discovery** (Consul), **comunicação HTTP resiliente**
+> entre serviços (`httpx` + `tenacity`) e um **API gateway** (Traefik) roteando por prefixo de caminho.
+> **Próxima: Fase 16** (orquestração com Kubernetes). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---

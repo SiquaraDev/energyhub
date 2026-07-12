@@ -1,10 +1,11 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–14)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–15)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 14 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+**Fases 2 a 15 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
 Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
 (RabbitMQ & Kafka), Busca (Elasticsearch), Observabilidade (Prometheus/Grafana), a Suíte de Testes
-com _quality gate_ de cobertura e a Containerização (Docker/Compose)** (versão `0.14.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+com _quality gate_ de cobertura, a Containerização (Docker/Compose) e a Decomposição em
+Microsserviços (Consul/Traefik)** (versão `0.15.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -17,7 +18,8 @@ RabbitMQ + Kafka) da Fase 10, o **subsistema de busca** (Elasticsearch + full-te
 a **camada de observabilidade** (métricas Prometheus + Grafana/Alertmanager) da Fase 12, a **suíte de
 testes automatizados** (unitários + componente + integração, com gate de 80% de cobertura) da Fase 13,
 a **containerização e orquestração** (Dockerfile multi-stage + Docker Compose) da Fase 14,
-suas **assinaturas reais** e como estendê-las nas próximas fases.
+a **decomposição em microsserviços** (5 serviços + Consul + clientes HTTP resilientes + gateway Traefik)
+da Fase 15, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -1068,7 +1070,62 @@ qualquer uso em produção. A API roda como usuário não-root, reduzindo o _bla
 
 ---
 
-## 🚀 20. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🕸️ 20. Decomposição em Microsserviços (Fase 15)
+
+A Fase 15 divide o monólito modular em **serviços FastAPI independentemente implantáveis** (mudança
+**_breaking_**), preservando o comportamento de domínio. É uma mudança de **topologia**: o processo
+único vira uma malha de serviços que se comunicam pela rede. A decomposição está documentada em
+[`docs/bounded-contexts.md`](./bounded-contexts.md).
+
+**Serviços extraídos** (em `services/<nome>-service/`, cada um dono do seu banco):
+
+| Serviço | Porta | Banco | Upstream (clientes HTTP) |
+| :------ | :---: | :---- | :----------------------- |
+| `auth-service` | 8001 | `authdb` | — (raiz) |
+| `client-service` | 8002 | `clientdb` | `AuthClient` |
+| `contract-service` | 8003 | `contractdb` | `AuthClient`, `ClientClient` |
+| `financial-service` | 8004 | `financialdb` | `AuthClient`, `ClientClient`, `ContractClient` |
+| `audit-service` | 8005 | `auditdb` | — (consome eventos do RabbitMQ) |
+
+**Anatomia de um serviço.** Cada projeto é autocontido (não importa código de irmãos nem do monólito):
+`pyproject.toml` + `Dockerfile` (multi-stage, não-root) próprios; `energyhub/config.py` (`Settings`
+com `app_name`/`app_port`/Consul/URLs upstream); `energyhub/main.py` (lifespan: mapeia, cria o schema,
+registra no Consul, fecha os clientes no shutdown; `/health`); um `mapping.py` **enxuto** que mapeia
+**só as tabelas do serviço** — referências cross-context (ex.: `contracts.client_id`) viram **UUID sem
+FK**, pois a tabela dona vive noutro serviço/banco. O kernel `shared/` e o módulo de domínio são
+**copiados** (extração fiel), não referenciados.
+
+**Service discovery (Consul).** `energyhub/discovery.py::register_with_consul` registra o serviço no
+startup (nome lógico + `service_id = {name}-{port}` + endereço/porta + **health check HTTP** contra
+`/health`) e desregistra no shutdown — via **API HTTP do Consul** (`httpx`). Callers e o gateway
+resolvem dependências por **nome**, não por host/porta fixos.
+
+**Comunicação entre serviços (`httpx`).** Cada dependência upstream tem um cliente dedicado
+(`AuthClient`/`ClientClient`/`ContractClient`) sobre uma base comum `ServiceClient`. A substituição
+central da chamada in-process é o **`get_current_user`** dos serviços downstream: em vez de ler a
+tabela `users` (que não possuem), decodificam o JWT e resolvem o usuário — com papéis/permissões — no
+`auth-service` (endpoints internos `/internal/users/...`, não publicados pelo gateway).
+
+**Resiliência (`tenacity`).** `ServiceClient` aplica, em toda chamada: **timeout** explícito; **retry**
+com _backoff_ exponencial e tentativas limitadas (3) para falhas transientes; `raise_for_status` para
+surfaçar erros de upstream; e um **fallback** (`None`) quando as tentativas se esgotam — a falha de uma
+dependência fica **contida** (ex.: vira 401), sem cascatear nem pendurar a requisição. Os pools `httpx`
+são fechados no shutdown.
+
+**API Gateway (Traefik).** Ponto de entrada único (`:80`). O provider **Consul-catalog** monta as rotas
+a partir das **tags `traefik.*`** que cada serviço publica no Consul, roteando por **prefixo de caminho**
+(`/api/v1/auth`→auth, `/api/v1/clients`→client, ...). Middlewares de **borda**: `forwardAuth` →
+`auth-service/internal/auth/verify` (autenticação), `accessLog` (logging) e `ratelimit`.
+
+> **Reconciliações (Windows).** Registro no Consul via **API HTTP** (`httpx`) em vez de `python-consul`
+> (assíncrono-friendly, uma dependência a menos). Roteamento do Traefik via **Consul-catalog** porque o
+> provider **Docker** do Traefik não alcança o daemon do Docker Desktop no Windows (mesma classe de
+> peculiaridade do Postgres host→container). O monólito `energyhub-api` **permanece** no compose
+> (estratégia _strangler_): serve os contextos ainda não extraídos até que sejam migrados.
+
+---
+
+## 🚀 21. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -1103,7 +1160,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 21. Referências
+## 📚 22. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

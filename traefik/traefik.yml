@@ -1,0 +1,29 @@
+# Traefik — API gateway do EnergyHub (Fase 15).
+# Ponto de entrada único; roteia por prefixo de caminho para os microsserviços, descobertos pelos
+# provedores Docker e Consul-catalog. Concerns de borda (logging + rate limit + auth) como middleware.
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  # Provider Consul-catalog: descobre os serviços registrados no Consul e monta as rotas a partir
+  # das tags `traefik.*` de cada serviço (roteamento dirigido pelo catálogo de descoberta).
+  consulCatalog:
+    exposedByDefault: false
+    prefix: traefik
+    connectAware: false
+    endpoint:
+      address: "consul:8500"
+      scheme: http
+
+# Logging de acesso na borda (todas as requisições que passam pelo gateway).
+accessLog: {}
+
+log:
+  level: INFO
+
+# Dashboard do Traefik (apenas dev — inseguro).
+api:
+  dashboard: true
+  insecure: true

@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–14** (`0.0.0` → `0.14.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.15.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–15** (`0.0.0` → `0.15.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.16.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **96 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **102 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14 + 6 da Fase 15).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -38,6 +38,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Observabilidade (Fase 12):** instrumentação Prometheus (`/metrics` via `prometheus-fastapi-instrumentator`, métricas HTTP `fastapi_*` + `application_info`); `MetricsConfig`/`BusinessMetrics` (`client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active`, `operation_duration_seconds`) com serviços instrumentados; recursos do host via `psutil`; stack Prometheus + Grafana (data source + 3 dashboards) + Alertmanager (regras de latência/erro/memória) no compose.
 - **Suíte de testes e gate de cobertura (Fase 13):** toolchain `pytest`/`pytest-asyncio`/`pytest-mock`/`pytest-cov`/`testcontainers` (grupo `dev`) e `[tool.pytest.ini_options]` com gate embutido (`--cov=energyhub --cov-fail-under=80`); testes unitários dos 15 serviços com colaboradores `AsyncMock`, testes de componente dos 13 routers via `TestClient`, e integração (repositórios via `PostgresContainer` + API via `TestClient` com JWT real); `docker-compose.test.yml` (PG/Redis/RabbitMQ em 5433/6380/5673); cobertura **87% in-container** (85% no host, com a integração pulada).
 - **Containerização e orquestração (Fase 14):** `Dockerfile` multi-stage (build com Poetry `--only main` → runtime `python:3.12-slim`, não-root `appuser`, `EXPOSE 8000`, `CMD uvicorn`) + `.dockerignore`; `docker-compose.yml` estendido com o serviço **`energyhub-api`** e toda a infra numa rede bridge `energyhub-network`, `restart: unless-stopped`, **startup health-gated** (`depends_on: service_healthy`) e config 12-factor por variável de ambiente (URLs por nome de serviço); volumes nomeados para todos os serviços com estado + AOF do Redis; Prometheus passa a scrapear `energyhub-api:8000`. A stack sobe com **um comando** (`docker compose up -d`).
+- **Microsserviços + gateway (Fase 15, ⚠️ _breaking_):** monólito decomposto em **5 serviços FastAPI independentes** (`services/auth|client|contract|financial|audit-service/`, portas 8001–8005), cada um com projeto/config/Dockerfile próprios, `mapping.py` enxuto e **banco dedicado**; **Consul** para service discovery (registro + health check + resolução por nome); clientes **`httpx`** (`AuthClient`/`ClientClient`/`ContractClient`) substituindo as chamadas in-process, com **resiliência** (`tenacity`: timeout + retry/backoff + fallback); **Traefik** roteando por prefixo de caminho via catálogo do Consul, com middlewares de borda (auth/logging/rate limit); decomposição documentada em `docs/bounded-contexts.md`.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -77,20 +78,24 @@ auto-recuperáveis, com autoscaling e um único ponto de entrada externo.
 
 ---
 
-## [0.15.0] — 🔮 Planejado · _Fase 15 · Microsserviços_
+## [0.15.0] — 2026-07-12 · ✅ Lançado · _Fase 15 · Microsserviços_
 
 Decomposição do monólito modular em serviços FastAPI independentemente implantáveis.
 
 ### Adicionado
-- Documentação dos _bounded contexts_ e do grafo de dependências (`docs/bounded-contexts.md`).
-- Extração de **Auth, Clients, Contracts, Financial e Audit** em projetos `services/<nome>-service/` independentes (pyproject, config, banco, Dockerfile e `/health` próprios).
-- _Service discovery_ via **Consul** (auto-registro com _health check_ e resolução por nome lógico).
-- Comunicação síncrona entre serviços via clientes **httpx** (`AuthClient`, `ClientClient`, `ContractClient`).
-- Políticas de resiliência com **tenacity** (timeouts, _retries_ com _backoff_ exponencial e _fallbacks_).
-- API Gateway **Traefik** roteando por prefixo de path via catálogo do Consul, com autenticação/logging/_rate limiting_ na borda.
+- Documentação dos _bounded contexts_ e do grafo de dependências (`docs/bounded-contexts.md`) — inventário módulo→contexto→serviço, DAG e ordem de extração.
+- Extração de **Auth, Clients, Contracts, Financial e Audit** em projetos `services/<nome>-service/` independentes (pyproject, `config.py`, `main.py`, banco dedicado, Dockerfile e `/health` próprios), com `mapping.py` enxuto por serviço.
+- _Service discovery_ via **Consul** (`register_with_consul` — auto-registro no startup com _health check_ HTTP e resolução por nome lógico; desregistro no shutdown).
+- Comunicação síncrona entre serviços via clientes **httpx** (`AuthClient`, `ClientClient`, `ContractClient`) que substituem as chamadas in-process (notadamente o `get_current_user` dos serviços downstream, que valida o JWT e resolve o usuário no `auth-service`).
+- Políticas de resiliência (base `ServiceClient`) com **tenacity**: _timeout_ explícito, _retries_ com _backoff_ exponencial (transientes), _fallback_ `None` e `close` dos pools no shutdown.
+- API Gateway **Traefik** roteando por prefixo de caminho via **catálogo do Consul** (rotas vindas das tags de cada serviço), com middlewares de borda: _forwardAuth_ (autenticação), _access log_ e _rate limit_.
 
 ### Alterado
-- **⚠️ BREAKING:** o ponto de entrada HTTP único é substituído por pontos de entrada por serviço acessados através do _gateway_; chamadas entre módulos passam a ser chamadas de rede e **cada serviço passa a ter o próprio banco de dados** (sem tabelas compartilhadas).
+- **⚠️ BREAKING:** o ponto de entrada HTTP único é substituído por pontos de entrada por serviço acessados através do _gateway_; chamadas entre módulos passam a ser chamadas de rede e **cada serviço passa a ter o próprio banco de dados** (sem tabelas compartilhadas — referências cross-context viram UUID sem FK).
+
+### Notas
+- Validado na stack real (16 containers): os 5 serviços **registram no Consul com health _passing_**; chamadas cross-service (cliente/contrato/fatura) retornam **201** validando o token via `AuthClient`; com o `auth-service` derrubado, uma chamada dependente degrada para **401 contido** (retries + fallback, sem cascata); o **gateway** (`:80`) roteia por prefixo e **bloqueia na borda** requisições sem token (401).
+- **Reconciliações:** registro no Consul via **API HTTP** (`httpx`) em vez de `python-consul`; roteamento via **Consul-catalog** (o provider Docker do Traefik não alcança o daemon do Docker Desktop no Windows). O monólito `energyhub-api` permanece no compose (estratégia _strangler_, servindo os contextos ainda não extraídos). Credenciais/`SECRET_KEY` são placeholders a rotacionar antes de produção.
 
 ---
 
