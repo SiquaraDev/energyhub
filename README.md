@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 11 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 12 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -63,10 +63,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > há um **cache Redis** de leitura (`fastapi-cache2`) com invalidação na escrita e um router
 > `/api/v1/cache` protegido por `CACHE_MANAGE`, uma **camada de mensageria assíncrona**
 > (**RabbitMQ** para workflows + **Kafka** para streams) publica eventos de domínio pós-commit e os
-> consome fora do caminho da requisição (`NotificationConsumer`, `AuditConsumer`), e um **subsistema
+> consome fora do caminho da requisição (`NotificationConsumer`, `AuditConsumer`), um **subsistema
 > de busca** (**Elasticsearch**) oferece full-text com relevância/fuzziness e filtros compostos em
-> `/api/v1/search/clients`.
-> **Próxima: Fase 12** (observabilidade — métricas, dashboards e alertas). Consulte o
+> `/api/v1/search/clients`, e uma **camada de observabilidade** expõe métricas Prometheus em
+> `/metrics` (HTTP + negócio + recursos) com **Prometheus/Grafana/Alertmanager** (dashboards e alertas).
+> **Próxima: Fase 13** (suíte de testes e _quality gate_ de cobertura). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -272,15 +273,20 @@ git clone https://github.com/Matheus-Siquara/energyhub.git
 cd energyhub
 ```
 
-### 2. Subir a infraestrutura (PostgreSQL + Redis + RabbitMQ + Kafka + Elasticsearch)
+### 2. Subir a infraestrutura (PostgreSQL + Redis + RabbitMQ + Kafka + Elasticsearch + Observabilidade)
 
 ```bash
-docker compose up -d          # PostgreSQL 16 · Redis 7 · RabbitMQ 3 · Kafka + Zookeeper · Elasticsearch 8
+docker compose up -d          # + Prometheus · Grafana · Alertmanager (Fase 12)
 docker exec energyhub-redis redis-cli ping              # PONG
 docker exec energyhub-rabbitmq rabbitmq-diagnostics ping  # Ping succeeded  (UI: http://localhost:15672)
 docker exec energyhub-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null && echo "kafka ok"
 curl -s http://localhost:9200/_cluster/health           # status: green (Elasticsearch)
 ```
+
+> **Observabilidade (Fase 12):** com a app rodando no host (passo 3), o Prometheus (**http://localhost:9090**)
+> scrapeia o `/metrics` via `host.docker.internal:8000`; Grafana em **http://localhost:3000**
+> (`admin`/`admin` — _placeholder_) com data source e dashboards provisionados; Alertmanager em
+> **http://localhost:9093**.
 
 ### 3. Instalar dependências e rodar a aplicação
 

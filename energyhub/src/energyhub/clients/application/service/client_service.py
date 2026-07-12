@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from uuid import UUID
 
 from fastapi_cache.decorator import cache
@@ -21,6 +22,7 @@ from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics, record_safely
 
 
 class ClientService:
@@ -28,7 +30,8 @@ class ClientService:
     o `commit` fica com a sessão por requisição (`get_session`).
 
     Após cada escrita persistida publica o evento de cliente (RabbitMQ) como efeito colateral
-    não-bloqueante — uma falha de broker é logada, não desfaz a escrita.
+    não-bloqueante — uma falha de broker é logada, não desfaz a escrita. A criação também registra
+    métricas Prometheus (duração + `client_created_total`), de forma livre de falhas.
     """
 
     def __init__(
@@ -42,6 +45,7 @@ class ClientService:
         self._producer = event_producer
 
     async def create(self, dto: ClientRequestDTO) -> ClientResponseDTO:
+        start = perf_counter()
         if await self._repository.exists_by_cnpj(dto.cnpj):
             raise ClientAlreadyExistsException(f"Já existe um cliente com o CNPJ {dto.cnpj}")
         entity = self._mapper.to_entity(dto)
@@ -52,6 +56,9 @@ class ClientService:
             await publish_safely(
                 self._producer.publish_client_created(response), event="client.created"
             )
+        elapsed = perf_counter() - start
+        record_safely(lambda: business_metrics.observe_operation("client_create", "POST", elapsed))
+        record_safely(business_metrics.increment_client_created)
         return response
 
     @cache(

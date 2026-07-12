@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–11** (`0.0.0` → `0.11.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.12.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–12** (`0.0.0` → `0.12.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.13.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **76 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **82 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -35,6 +35,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Cache Redis (Fase 9):** serviço `redis:7-alpine` no compose, `CacheConfig`/`CacheConstants`, `@cache` nos reads de 5 serviços (namespaces + TTLs), invalidação em create/update/delete, e router `/api/v1/cache` (`/stats`, `/clear`) protegido por `CACHE_MANAGE` (migração `0010`).
 - **Mensageria assíncrona (Fase 10):** brokers **RabbitMQ** (workflows) e **Kafka** + Zookeeper (streams) no compose; `RabbitMQConfig`/`setup_queues` (11 filas duráveis) e `KafkaConfig`/`create_topics` (4 tópicos); `EventProducer` base + `UserEventProducer`/`ClientEventProducer` (RabbitMQ) e `KafkaEventProducer`/`KafkaEventConsumer` (JSON com chave); consumidores `NotificationConsumer` e `AuditConsumer` (ack manual, `prefetch_count=1`); publicação pós-commit nos serviços (não-bloqueante) e `MessagePublishingException`.
 - **Busca full-text (Fase 11):** serviço **Elasticsearch** (single-node, healthcheck, volume) no compose + deps `elasticsearch`/`elasticsearch-dsl`; `ElasticsearchConfig` (client factory + `create_indices` idempotente); documentos `ClientDocument`/`ContractDocument` (keyword/text, analisador português, `from_entity`); repositórios de busca (index/delete/finders); `ClientSearchService` (`multi_match` com boosting + `fuzziness='AUTO'`, filtro por localização, busca avançada com `SearchFilter`/`FilterCondition` + `min_score`); router `/api/v1/search/clients` (full-text, location, advanced).
+- **Observabilidade (Fase 12):** instrumentação Prometheus (`/metrics` via `prometheus-fastapi-instrumentator`, métricas HTTP `fastapi_*` + `application_info`); `MetricsConfig`/`BusinessMetrics` (`client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active`, `operation_duration_seconds`) com serviços instrumentados; recursos do host via `psutil`; stack Prometheus + Grafana (data source + 3 dashboards) + Alertmanager (regras de latência/erro/memória) no compose.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -119,16 +120,26 @@ Suíte de testes determinística (unitários + integração) com _quality gate_ 
 
 ---
 
-## [0.12.0] — 🔮 Planejado · _Fase 12 · Observabilidade_
+## [0.12.0] — 2026-07-12 · ✅ Lançado · _Fase 12 · Observabilidade_
 
-Visibilidade em tempo real com métricas, dashboards e alertas.
+Visibilidade em tempo real com métricas, dashboards e alertas — o complemento "o que está
+acontecendo agora" aos logs. Mudança aditiva e transversal, sem alterar contratos de API existentes.
 
 ### Adicionado
-- Instrumentação Prometheus da app (`/metrics` via `prometheus-fastapi-instrumentator`) com métricas HTTP padrão e `application_info`.
-- `MetricsConfig` + `BusinessMetrics` para _counters/gauges/histograms_ customizados (clientes criados, contratos por status, faturas pagas, ...).
-- Métricas de recursos do host (memória, CPU, disco) via `psutil`.
-- Servidor Prometheus (com `prometheus.yml` e volume) e Grafana com _data source_ e dashboards de aplicação/negócio/infraestrutura.
-- Regras de alerta (`alerts.yml`) e Alertmanager (latência alta, taxa de erro alta, recursos baixos).
+- Instrumentação Prometheus via `prometheus-fastapi-instrumentator`: endpoint `/metrics` (excluído da própria instrumentação) com métricas HTTP `fastapi_*` (contagem, latência, in-progress) e `application_info{name,environment,version}` (das settings). Deps `prometheus-client`, `prometheus-fastapi-instrumentator`, `psutil`.
+- `MetricsConfig` (`shared/infrastructure/metrics/`) — fábrica única dos coletores customizados (registro exatamente uma vez): `client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active` (gauge) e `operation_duration_seconds{endpoint,method}` (histograma).
+- `BusinessMetrics` (fachada singleton) + `record_safely` (registro **livre de falhas** — nunca quebra a operação de negócio); séries rotuladas **inicializadas em zero** no lifespan. Serviços instrumentados: `ClientService.create` (duração + `client_created`), `ContractService.create` (por status), `InvoiceService.update` (`invoice_paid` ao transitar para PAID).
+- `SystemMetricsCollector` (psutil) — `memory_usage_bytes`/`memory_available_bytes`/`cpu_usage_percent`/`disk_usage_percent`, **refrescados no scrape** (o `collect()` atualiza antes de emitir).
+- Serviço **Prometheus** (`prom/prometheus`, `prometheus/prometheus.yml` + volume) que scrapeia o app no host via `host.docker.internal:8000`; **Grafana** (`grafana/grafana`, data source Prometheus provisionado + dashboards de aplicação/negócio/infraestrutura) e **Alertmanager** (`prom/alertmanager`, `alertmanager.yml`) — portas 9090/3000/9093.
+- Regras de alerta (`prometheus/alerts.yml`): `HighRequestLatency` (p95 > 1s, warning), `HighErrorRate` (5xx > 5%, critical), `LowMemory` (disponível < 500 MB, warning), roteadas ao Alertmanager.
+- Settings `app_version` e `environment` em `energyhub.config.settings`.
+
+### Alterado
+- _Override_ de mypy para `psutil` (sem stubs); `prometheus_client` e o instrumentator são tipados.
+
+### Notas
+- O `/metrics` fica **aberto** na rede interna (sem auth) e as credenciais do Grafana (`admin`/`admin`) + o receiver do Alertmanager são **placeholders** — trocar antes de qualquer uso não-local.
+- O app roda no **host** e o Prometheus o scrapeia via `host.docker.internal` (`extra_hosts: host-gateway` cobre Linux). Prometheus/Grafana/Alertmanager **conectam do host** (como Redis/RabbitMQ/Kafka/ES; só o Postgres falha).
 
 ---
 

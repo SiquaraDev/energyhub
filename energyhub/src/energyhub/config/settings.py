@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     """Configurações da aplicação, carregadas de variáveis de ambiente e do arquivo .env."""
 
     app_name: str = "EnergyHub"
+    app_version: str = "0.12.0"  # versão atual (marco da fase); usada no `application_info`
+    environment: str = "development"  # development | staging | production
     debug: bool = False
     database_url: str = "postgresql+asyncpg://energyhub:energyhub123@localhost:5432/energyhub"
     secret_key: str = "change-me-in-production"

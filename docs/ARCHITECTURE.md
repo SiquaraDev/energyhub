@@ -1,9 +1,9 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–11)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–12)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 11 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+**Fases 2 a 12 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
 Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
-(RabbitMQ & Kafka) e Busca (Elasticsearch)** (versão `0.11.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+(RabbitMQ & Kafka), Busca (Elasticsearch) e Observabilidade (Prometheus/Grafana)** (versão `0.12.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -13,7 +13,8 @@ routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, R
 Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, o **cache Redis**
 (fastapi-cache2 + invalidação) da Fase 9, a **camada de mensageria assíncrona** (produtores/consumidores
 RabbitMQ + Kafka) da Fase 10, o **subsistema de busca** (Elasticsearch + full-text/filtros) da Fase 11,
-suas **assinaturas reais** e como estendê-las nas próximas fases.
+a **camada de observabilidade** (métricas Prometheus + Grafana/Alertmanager) da Fase 12, suas
+**assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -917,7 +918,59 @@ opcional descarta hits de baixa relevância. Espelha o split _finders_ × filtro
 
 ---
 
-## 🚀 17. Como adicionar uma nova entidade/módulo (próximas fases)
+## 📈 17. Observabilidade (Prometheus/Grafana · Fase 12)
+
+A **Fase 12** (versão `0.12.0`) adicionou **observabilidade em tempo real** — o complemento numérico
+("o que está acontecendo agora") aos logs. É aditiva e transversal: instrumenta o `main.py`, adiciona
+`shared/infrastructure/metrics/`, instrumenta serviços e sobe Prometheus/Grafana/Alertmanager no compose,
+**sem** alterar contratos de API existentes.
+
+### 17.1 🧱 As peças
+
+| Arquivo / serviço | Papel |
+| :---------------- | :---- |
+| `main.py` (instrumentator) | `prometheus-fastapi-instrumentator` → métricas HTTP `fastapi_*` (contagem, latência, in-progress) + endpoint `/metrics` (**excluído** da própria instrumentação) |
+| `shared/.../metrics/metrics_config.py` | `MetricsConfig` — coletores customizados como **atributos de classe** (registro único, evita duplicação) + `application_info`; `set_application_info(...)` |
+| `shared/.../metrics/business_metrics.py` | `BusinessMetrics` (fachada singleton) + `record_safely` (registro **livre de falhas**) |
+| `shared/.../metrics/system_metrics.py` | `SystemMetricsCollector` — gauges de host (memória/CPU/disco) **refrescados no scrape** via `collect()` |
+| `prometheus/` | `prometheus.yml` (scrape + rules + alerting), `alerts.yml`, `alertmanager.yml` |
+| `grafana/` | provisioning (data source + provider) + dashboards Aplicação/Negócio/Infra |
+
+O `lifespan` faz `set_application_info(...)`, `business_metrics.initialize([status…])` (zero-init das
+séries rotuladas; os status vêm do `main`, preservando a regra de dependência) e `register_system_metrics()`.
+
+### 17.2 📊 Catálogo de métricas
+
+- **HTTP (default):** `fastapi_requests_total{handler,method,status}`, `fastapi_request_duration_seconds_*`,
+  `fastapi_requests_inprogress`. Nomes `fastapi_*` escolhidos para casar com a PromQL do plano.
+- **Negócio:** `client_created_total`, `contract_created_total{status}`, `invoice_paid_total`,
+  `clients_active` (gauge), `operation_duration_seconds{endpoint,method}` (histograma).
+- **Recursos:** `memory_usage_bytes`, `memory_available_bytes`, `cpu_usage_percent`, `disk_usage_percent`.
+- **Info:** `application_info{name,environment,version}`.
+
+Instrumentação nos serviços: `ClientService.create` (duração + `client_created`), `ContractService.create`
+(por status) e `InvoiceService.update` (`invoice_paid` ao transitar → PAID) — sempre via `record_safely`,
+para que um erro de métrica **nunca** quebre a operação de negócio.
+
+### 17.3 🛰️ Coleta, dashboards e alertas
+
+O app roda **no host** (`uvicorn :8000`); o **Prometheus** (container) o scrapeia via
+`host.docker.internal:8000` (`extra_hosts: host-gateway` cobre Linux). O **Grafana** provisiona o data
+source Prometheus + 3 dashboards. As regras (`HighRequestLatency` p95>1s, `HighErrorRate` 5xx>5%,
+`LowMemory` disponível<500 MB) são avaliadas pelo Prometheus e roteadas ao **Alertmanager**.
+
+### 17.4 ⚠️ Notas e limitações
+
+- **Segurança:** `/metrics` fica **aberto** na rede interna; credenciais do Grafana (`admin`/`admin`) e o
+  receiver do Alertmanager são **placeholders** — trocar por _secrets_ antes de qualquer uso não-local.
+- **Não-bloqueante:** o registro de métrica é efeito colateral guardado (`record_safely`); métricas de
+  recurso usam `psutil` (**sem stubs** → _override_ de mypy `psutil`).
+- **Escopo:** apenas métricas + alertas por threshold (sem tracing/OpenTelemetry, sem SLO); host via
+  `psutil` in-process (upgrade natural: `node_exporter`). No Windows, a stack **conecta do host**.
+
+---
+
+## 🚀 18. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -952,7 +1005,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 18. Referências
+## 📚 19. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

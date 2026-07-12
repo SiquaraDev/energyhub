@@ -24,6 +24,7 @@ from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
 from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics, record_safely
 
 
 class ContractService:
@@ -67,6 +68,7 @@ class ContractService:
         await invalidate_cache(CacheConstants.CONTRACTS)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        record_safely(lambda: business_metrics.increment_contract_created(response.status.value))
         return response
 
     @cache(

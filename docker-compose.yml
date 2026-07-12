@@ -105,8 +105,59 @@ services:
       timeout: 10s
       retries: 5
 
+  # Observabilidade — Prometheus (coleta/armazenamento de métricas) — Fase 12.
+  # O app roda no host (uvicorn :8000); scrape via host.docker.internal (Docker Desktop) /
+  # host-gateway (Linux). Ver prometheus/prometheus.yml.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: energyhub-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - alertmanager
+
+  # Observabilidade — Grafana (dashboards) — Fase 12. Data source + dashboards provisionados.
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: energyhub-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin        # placeholder — trocar antes de produção
+      GF_SECURITY_ADMIN_PASSWORD: admin     # placeholder — trocar antes de produção
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # Observabilidade — Alertmanager (roteamento/notificação de alertas) — Fase 12.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: energyhub-alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
   elasticsearch_data:
+  prometheus_data:
+  grafana_data:

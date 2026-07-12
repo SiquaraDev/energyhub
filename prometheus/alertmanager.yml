@@ -1,0 +1,15 @@
+# Configuração do Alertmanager — EnergyHub (Fase 12).
+# Receiver placeholder (webhook). Substituir por e-mail/Slack real + secrets antes de produção.
+route:
+  receiver: default
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+
+receivers:
+  - name: default
+    webhook_configs:
+      # Placeholder — trocar pela URL real do canal de notificação.
+      - url: "http://host.docker.internal:5001/alerts"
+        send_resolved: true

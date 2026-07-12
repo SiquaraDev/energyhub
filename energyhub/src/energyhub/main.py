@@ -2,7 +2,8 @@
 
 Monta routers, middlewares e handlers de erro; customiza o documento OpenAPI (metadados, esquema
 `bearerAuth`, tags) da Fase 8; inicializa o cache Redis (fastapi-cache2) no `lifespan` da Fase 9;
-e prepara a mensageria (topologia de filas/tópicos + encerramento dos produtores) da Fase 10.
+prepara a mensageria (Fase 10) e os índices de busca (Fase 11); e instrumenta métricas Prometheus
+(`/metrics`, métricas de negócio/recursos) da Fase 12.
 """
 
 import logging
@@ -14,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from energyhub.audit.presentation.router.audit_log_router import AuditLogRouter
 from energyhub.auth.domain.exception.invalid_credentials_exception import (
@@ -31,6 +33,8 @@ from energyhub.clients.infrastructure.messaging.client_event_producer import cli
 from energyhub.clients.infrastructure.search.client_document import ClientDocument
 from energyhub.clients.presentation.router.client_router import ClientRouter
 from energyhub.clients.presentation.router.client_search_router import ClientSearchRouter
+from energyhub.config.settings import settings
+from energyhub.contracts.domain.entity.contract_status import ContractStatus
 from energyhub.contracts.infrastructure.search.contract_document import ContractDocument
 from energyhub.contracts.presentation.router.contract_router import ContractRouter
 from energyhub.financial.presentation.router.financial_router import FinancialRouter
@@ -42,6 +46,9 @@ from energyhub.shared.infrastructure.cache.cache_config import CacheConfig
 from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import kafka_event_producer
 from energyhub.shared.infrastructure.messaging.rabbitmq_config import setup_queues
+from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics
+from energyhub.shared.infrastructure.metrics.metrics_config import set_application_info
+from energyhub.shared.infrastructure.metrics.system_metrics import register_system_metrics
 from energyhub.shared.infrastructure.persistence.mapping import configure_mappings
 from energyhub.shared.infrastructure.search.elasticsearch_config import ElasticsearchConfig
 from energyhub.shared.presentation.exception.domain_exception_handler import (
@@ -85,11 +92,12 @@ _PUBLIC_PATHS = {"/", "/health", "/api/v1/auth/login"}
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Ciclo de vida da app: cache (Fase 9) + topologia/produtores de mensageria (Fase 10).
+    """Ciclo de vida: cache (F9), mensageria (F10), busca (F11) e métricas (F12).
 
-    - **Startup:** inicializa o cache Redis (conexão preguiçosa) e declara, de forma idempotente,
-      as filas RabbitMQ e os tópicos Kafka. A preparação da mensageria é *best-effort*: se um broker
-      estiver indisponível, apenas registra um aviso e **não** derruba o startup.
+    - **Startup:** inicializa o cache Redis (conexão preguiçosa); declara filas/tópicos e índices de
+      busca de forma idempotente (*best-effort* — um serviço indisponível apenas gera aviso, não
+      derruba o startup); e prepara as métricas (`application_info`, séries de negócio em zero,
+      coletor de recursos do host).
     - **Shutdown:** encerra as conexões dos produtores compartilhados.
     """
     CacheConfig.init_cache()
@@ -105,6 +113,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         ElasticsearchConfig.create_indices([ClientDocument, ContractDocument])
     except Exception as error:  # Elasticsearch indisponível não deve impedir o startup
         logger.warning("Índices Elasticsearch não preparados (ES indisponível?): %s", error)
+
+    # Métricas (Fase 12): info da app + séries de negócio em zero + coletor de recursos do host.
+    set_application_info(settings.app_name, settings.environment, settings.app_version)
+    business_metrics.initialize([status.value for status in ContractStatus])
+    register_system_metrics()
 
     yield
 
@@ -177,6 +190,25 @@ app.include_router(CacheRouter().get_router())
 
 # Router de busca de clientes (Fase 11) — Elasticsearch, sob /api/v1/search/clients.
 app.include_router(ClientSearchRouter().get_router())
+
+# Instrumentação Prometheus (Fase 12): métricas HTTP padrão (contagem, latência, in-progress) +
+# endpoint /metrics. O próprio /metrics é excluído da instrumentação (não infla as métricas).
+_instrumentator = Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=False,
+    should_group_untemplated=True,
+    should_instrument_requests_inprogress=True,
+    inprogress_name="fastapi_requests_inprogress",
+    inprogress_labels=True,
+    excluded_handlers=["/metrics"],
+)
+_instrumentator.add(
+    metrics.requests(metric_name="fastapi_requests_total"),
+    metrics.latency(metric_name="fastapi_request_duration_seconds"),
+)
+_instrumentator.instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=True, tags=["Health"]
+)
 
 
 def custom_openapi() -> dict[str, Any]:

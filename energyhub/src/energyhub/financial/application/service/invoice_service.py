@@ -7,6 +7,7 @@ from uuid import UUID
 from energyhub.financial.application.dto.invoice_request_dto import InvoiceRequestDTO
 from energyhub.financial.application.dto.invoice_response_dto import InvoiceResponseDTO
 from energyhub.financial.application.mapper.invoice_mapper import InvoiceMapper
+from energyhub.financial.domain.entity.invoice_status import InvoiceStatus
 from energyhub.financial.domain.exception.invoice_already_exists_exception import (
     InvoiceAlreadyExistsException,
 )
@@ -19,6 +20,7 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics, record_safely
 
 
 class InvoiceService:
@@ -80,6 +82,7 @@ class InvoiceService:
         entity = await self._repository.find_by_id(invoice_id)
         if entity is None:
             raise InvoiceNotFoundException(f"Fatura {invoice_id} não encontrada")
+        became_paid = entity.status != InvoiceStatus.PAID and dto.status == InvoiceStatus.PAID
         entity.amount = dto.amount
         entity.due_date = dto.due_date
         entity.status = dto.status
@@ -87,6 +90,8 @@ class InvoiceService:
         saved = await self._repository.save(entity)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        if became_paid:
+            record_safely(business_metrics.increment_invoice_paid)
         return response
 
     async def delete(self, invoice_id: UUID) -> None:

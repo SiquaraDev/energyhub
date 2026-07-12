@@ -25,7 +25,10 @@ dependencies = [
     "aio-pika (>=9.4.0,<10.0.0)",
     "aiokafka (>=0.11.0,<0.13.0)",
     "elasticsearch (>=8.0.0,<9.0.0)",
-    "elasticsearch-dsl (>=8.0.0,<9.0.0)"
+    "elasticsearch-dsl (>=8.0.0,<9.0.0)",
+    "prometheus-client (>=0.25.0,<0.26.0)",
+    "prometheus-fastapi-instrumentator (>=8.0.2,<9.0.0)",
+    "psutil (>=7.2.2,<8.0.0)"
 ]
 
 [tool.poetry]
@@ -92,6 +95,12 @@ ignore_missing_imports = true
 # documentos/repositórios/serviço de busca. O cliente `elasticsearch` em si é tipado.
 [[tool.mypy.overrides]]
 module = ["elasticsearch_dsl.*"]
+ignore_missing_imports = true
+
+# `psutil` (Fase 12) não publica stubs reconhecidos pelo mypy; os tipos são fixados no
+# `SystemMetricsCollector`. (`prometheus_client` e o instrumentator são tipados.)
+[[tool.mypy.overrides]]
+module = ["psutil"]
 ignore_missing_imports = true
 
 # Cache (Fase 9): o decorador `@cache` do fastapi-cache2 tipa o retorno como `T | Response` (para

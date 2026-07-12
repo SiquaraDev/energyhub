@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 11
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.11.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 12 — Observabilidade
-> (Métricas, Dashboards e Alertas)**. As **Fases 12–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 12
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.12.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 13 — Suíte de Testes e
+> _Quality Gate_ de Cobertura**. As **Fases 13–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -291,13 +291,25 @@ negócio). Analisador **português** customizado + `ClientDocument`/`ContractDoc
 full-text < 1s, fuzziness, location, paginação, term+range e `min_score`. Nota Windows: o ES **conecta do host**
 (como Redis/RabbitMQ/Kafka; só o Postgres falha).
 
-### 📋 Fase 12 — Observabilidade: Métricas, Dashboards e Alertas · `0.12.0`
+### ✅ Fase 12 — Observabilidade: Métricas, Dashboards e Alertas · `0.12.0` _(concluída)_
 **Objetivo:** dar visibilidade em tempo real (throughput, latência, taxa de erro, volumes de negócio e recursos de host).
 
 **Entregáveis:**
 - `metrics-instrumentation` (endpoint `/metrics` via `prometheus-fastapi-instrumentator`) · `custom-application-metrics` (`BusinessMetrics`)
 - `system-resource-metrics` (psutil) · `prometheus-scraping` · `grafana-dashboards`
 - `alerting` — regras Prometheus + Alertmanager (latência alta, taxa de erro, recursos baixos)
+
+_Como implementado:_ instrumentação via `prometheus-fastapi-instrumentator` (métricas HTTP `fastapi_*` +
+`application_info`, `/metrics` excluído da própria coleta). `MetricsConfig` (coletores registrados uma vez) +
+`BusinessMetrics` (singleton) + `record_safely` (registro livre de falhas); séries de negócio
+(`client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active`,
+`operation_duration_seconds`) zero-inicializadas no lifespan e instrumentadas em Client/Contract/Invoice.
+`SystemMetricsCollector` (psutil) refresca memória/CPU/disco no scrape. Stack `prom/prometheus` +
+`grafana/grafana` (data source + 3 dashboards provisionados) + `prom/alertmanager` no compose; o Prometheus
+scrapeia o app no host via `host.docker.internal:8000`. Regras `HighRequestLatency`/`HighErrorRate`/`LowMemory`.
+Verificado: **ruff/black/mypy (429) limpos** + E2E — `/metrics` (11 famílias), target UP, PromQL, 3 regras
+carregadas e roteadas ao Alertmanager, data source + dashboards do Grafana renderizando. Placeholders
+(`admin`/`admin`, receiver, `/metrics` aberto) a trocar antes de produção.
 
 ---
 
