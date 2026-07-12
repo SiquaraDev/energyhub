@@ -1,0 +1,44 @@
+# Contexto de build mínimo e reproduzível (Fase 14). O contexto é a raiz do repo; o Dockerfile
+# copia apenas energyhub/{pyproject.toml,poetry.lock,README.md,src,alembic,alembic.ini}.
+
+# Controle de versão e metadados
+.git/
+.gitignore
+.gitattributes
+
+# Ambientes virtuais e caches Python
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Artefatos de teste/cobertura
+**/htmlcov/
+**/.coverage
+**/.coverage.*
+**/coverage.xml
+
+# Segredos e configuração local (nunca vão para a imagem)
+**/.env
+**/.env.*
+
+# Docker/infra (não fazem parte da imagem da aplicação)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+prometheus/
+grafana/
+
+# Documentação, specs e planejamento
+docs/
+openspec/
+**/*.md
+!energyhub/README.md
+
+# Editores / SO
+.idea/
+.vscode/
+**/.DS_Store
+Thumbs.db

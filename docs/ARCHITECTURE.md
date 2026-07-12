@@ -1,10 +1,10 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–13)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–14)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 13 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+**Fases 2 a 14 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
 Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
-(RabbitMQ & Kafka), Busca (Elasticsearch), Observabilidade (Prometheus/Grafana) e a Suíte de Testes
-com _quality gate_ de cobertura** (versão `0.13.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+(RabbitMQ & Kafka), Busca (Elasticsearch), Observabilidade (Prometheus/Grafana), a Suíte de Testes
+com _quality gate_ de cobertura e a Containerização (Docker/Compose)** (versão `0.14.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -16,6 +16,7 @@ Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fas
 RabbitMQ + Kafka) da Fase 10, o **subsistema de busca** (Elasticsearch + full-text/filtros) da Fase 11,
 a **camada de observabilidade** (métricas Prometheus + Grafana/Alertmanager) da Fase 12, a **suíte de
 testes automatizados** (unitários + componente + integração, com gate de 80% de cobertura) da Fase 13,
+a **containerização e orquestração** (Dockerfile multi-stage + Docker Compose) da Fase 14,
 suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
@@ -1012,7 +1013,62 @@ gate satisfeito). A estabilização não revelou defeito de aplicação — só 
 
 ---
 
-## 🚀 19. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🐳 19. Containerização e Orquestração (Fase 14)
+
+A aplicação é empacotada numa imagem Docker e **toda a stack sobe com um comando**
+(`docker compose up -d`). Artefatos na raiz do repositório: `Dockerfile`, `.dockerignore` e o
+`docker-compose.yml` (que passou a incluir a própria API, além da infra das Fases 4–12).
+
+**Imagem (`Dockerfile`) — build multi-stage, runtime slim e não-root:**
+
+- **Estágio `builder`** (`python:3.12-slim` + Poetry): resolve **só** as dependências de produção —
+  `poetry install --only main --no-root` — num virtualenv em `/app/.venv`. Copiar apenas os
+  manifestos (`pyproject.toml`/`poetry.lock`) antes do código aproveita o **cache de camadas**: as
+  deps não reinstalam quando só o código muda.
+- **Estágio `runtime`** (`python:3.12-slim`): copia **apenas** o `/app/.venv` resolvido + o código
+  (`src`, `alembic`) — sem Poetry nem compiladores. Cria o usuário **`appuser`** (não-root), faz
+  `chown` do `/app`, `EXPOSE 8000` e `CMD ["uvicorn", "energyhub.main:app", "--host", "0.0.0.0",
+  "--port", "8000"]`. O pacote é importado via `PYTHONPATH=/app/src`.
+- **Detalhe load-bearing:** o venv é criado **no mesmo caminho** (`/app/.venv`) em ambos os estágios,
+  senão os _shebangs_ dos console scripts (uvicorn/alembic) apontariam para o caminho do `builder` e
+  o `exec` falharia com _"no such file or directory"_. A versão do Poetry na imagem casa com a do host
+  (`2.4.1`) para o `poetry.lock` (formato PEP 735 `[dependency-groups]`) validar.
+
+**Orquestração (`docker-compose.yml`):**
+
+- **Serviço `energyhub-api`** construído pelo `Dockerfile`, publicando `:8000`, `restart:
+  unless-stopped`, ao lado de Postgres, Redis, RabbitMQ, Kafka + Zookeeper, Elasticsearch, Prometheus,
+  Grafana e Alertmanager — todos na rede _bridge_ **`energyhub-network`** (resolvem-se por nome).
+- **Startup health-gated:** a API declara `depends_on: { condition: service_healthy }` para
+  Postgres/Redis/RabbitMQ/Elasticsearch/Kafka — só inicia depois de todos saudáveis, eliminando a
+  corrida clássica "app sobe antes do banco aceitar conexões". `start_period` no ES/Kafka dá folga
+  para a primeira inicialização (evita que checagens antes da prontidão contem como falha).
+- **Config 12-factor:** toda a configuração é injetada por variável de ambiente e as URLs endereçam
+  as dependências por **nome de serviço** (`postgres`, `redis`, `rabbitmq`, `elasticsearch`,
+  `kafka:29092`), **nunca `localhost`** — a mesma imagem roda em qualquer ambiente sem rebuild.
+  Nenhum segredo é embutido na imagem.
+- **Persistência:** volumes nomeados para cada serviço com estado (`postgres_data`, `redis_data`,
+  `rabbitmq_data`, `elasticsearch_data`, `prometheus_data`, `grafana_data`) montados no diretório de
+  dados; o Redis roda com **AOF** (`--appendonly yes`). Os dados sobrevivem a `docker compose down`/`up`.
+- **Observabilidade na rede:** com a API agora na stack, o `prometheus/prometheus.yml` scrapeia
+  **`energyhub-api:8000`** (antes era `host.docker.internal:8000`, quando a app rodava no host).
+
+**Migrações.** A imagem inclui o `alembic`; no primeiro boot com banco vazio, aplique o schema (que
+também semeia o `admin`) com `docker compose exec energyhub-api alembic upgrade head`. O `CMD` da
+imagem é apenas o uvicorn — migração é passo explícito, não efeito colateral do startup.
+
+**Segurança.** As credenciais dos serviços e o `SECRET_KEY` no compose são **placeholders de
+desenvolvimento** — devem ser rotacionados e externalizados (`.env` / secrets manager) antes de
+qualquer uso em produção. A API roda como usuário não-root, reduzindo o _blast radius_.
+
+> **Nota de versões (reconciliação):** foram mantidas as versões de imagem já validadas nas Fases
+> 10–12 (Elasticsearch `8.13.4`, Kafka/Zookeeper `7.6.1`, Prometheus `v2.54.1`, Grafana `11.2.0`) em
+> vez das do plano original (`8.11.0`/`7.5.0`): um _downgrade_ do Elasticsearch quebraria o volume de
+> dados existente (índices `8.13.4` não abrem no `8.11.0`) sem qualquer ganho.
+
+---
+
+## 🚀 20. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -1047,7 +1103,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 20. Referências
+## 📚 21. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

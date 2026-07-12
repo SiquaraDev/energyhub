@@ -1,5 +1,6 @@
-# Configuração do Prometheus — EnergyHub (Fase 12).
-# O app roda no host (uvicorn :8000); o Prometheus (container) o scrapeia via host.docker.internal.
+# Configuração do Prometheus — EnergyHub (Fase 12, atualizada na Fase 14).
+# A API agora roda na stack (serviço `energyhub-api`); o Prometheus a scrapeia por nome de serviço
+# na rede compartilhada (`energyhub-api:8000`), não mais via host.docker.internal.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -14,12 +15,12 @@ alerting:
             - alertmanager:9093
 
 scrape_configs:
-  # Aplicação EnergyHub (endpoint /metrics).
+  # Aplicação EnergyHub (endpoint /metrics) — alcançada pelo nome do serviço na rede do compose.
   - job_name: energyhub
     metrics_path: /metrics
     static_configs:
       - targets:
-          - host.docker.internal:8000
+          - energyhub-api:8000
 
   # O próprio Prometheus (auto-monitoramento).
   - job_name: prometheus

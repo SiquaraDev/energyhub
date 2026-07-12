@@ -1,13 +1,58 @@
-version: "3.8"
-
+# EnergyHub — orquestração completa da stack (Fase 14).
+#
+# `docker compose up -d` sobe a API (imagem construída pelo Dockerfile) + PostgreSQL, Redis,
+# RabbitMQ, Kafka+Zookeeper, Elasticsearch, Prometheus, Grafana e Alertmanager, todos numa rede
+# bridge compartilhada (`energyhub-network`). A API só inicia depois das dependências com health
+# check reportarem `healthy` (depends_on). Toda configuração é injetada por variável de ambiente.
+#
+# ⚠️ Segurança: as credenciais e o `SECRET_KEY` abaixo são PLACEHOLDERS de desenvolvimento —
+#    rotacionar e externalizar (`.env` / secrets manager) antes de qualquer uso em produção.
+#    Primeiro boot com banco vazio: `docker compose exec energyhub-api alembic upgrade head`.
 services:
+  # Aplicação EnergyHub (FastAPI/uvicorn :8000) — Fase 14.
+  energyhub-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: energyhub:latest
+    container_name: energyhub-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Twelve-factor: todas as URLs endereçam as dependências pelo NOME do serviço (não localhost).
+      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/energyhub
+      # A app deriva `redis_url` de REDIS_HOST/REDIS_PORT; REDIS_URL fica documentado (twelve-factor).
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # listener interno da rede (host usa localhost:9092)
+      SECRET_KEY: change-me-in-production      # placeholder — rotacionar antes de produção
+      ENVIRONMENT: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - energyhub-network
+
   postgres:
     image: postgres:16-alpine
     container_name: energyhub-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: energyhub
-      POSTGRES_USER: energyhub
-      POSTGRES_PASSWORD: energyhub123
+      POSTGRES_USER: energyhub            # placeholder — rotacionar antes de produção
+      POSTGRES_PASSWORD: energyhub123      # placeholder — rotacionar antes de produção
     ports:
       - "5432:5432"
     volumes:
@@ -17,11 +62,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - energyhub-network
 
   redis:
     image: redis:7-alpine
     container_name: energyhub-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]   # persistência AOF
     ports:
       - "6379:6379"
     volumes:
@@ -31,14 +79,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - energyhub-network
 
   # Mensageria — RabbitMQ (workflows por entidade, roteamento e ack manual) — Fase 10.
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: energyhub-rabbitmq
+    restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: energyhub
-      RABBITMQ_DEFAULT_PASS: energyhub123
+      RABBITMQ_DEFAULT_USER: energyhub     # placeholder — rotacionar antes de produção
+      RABBITMQ_DEFAULT_PASS: energyhub123   # placeholder — rotacionar antes de produção
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # UI de gerenciamento
@@ -49,21 +100,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - energyhub-network
 
   # Mensageria — Zookeeper (coordenação do broker Kafka) — Fase 10.
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.1
     container_name: energyhub-zookeeper
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    networks:
+      - energyhub-network
 
   # Busca — Elasticsearch (full-text, relevância, fuzziness) — Fase 11.
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     container_name: energyhub-elasticsearch
+    restart: unless-stopped
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -77,11 +134,15 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+      start_period: 30s   # ES leva ~20-30s p/ subir; falhas antes disso não contam
+    networks:
+      - energyhub-network
 
   # Mensageria — Kafka (streams de alto volume, partições e consumer groups) — Fase 10.
   kafka:
     image: confluentinc/cp-kafka:7.6.1
     container_name: energyhub-kafka
+    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
@@ -89,8 +150,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Dois listeners: interno (kafka:29092, para clientes na rede do compose) e host
-      # (localhost:9092, para clientes na máquina hospedeira).
+      # Dois listeners: interno (kafka:29092, para clientes na rede do compose — inclui a API) e
+      # host (localhost:9092, para clientes na máquina hospedeira).
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
@@ -104,13 +165,16 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
+      start_period: 40s   # Kafka leva ~30-40s p/ conectar ao Zookeeper e aceitar conexões
+    networks:
+      - energyhub-network
 
   # Observabilidade — Prometheus (coleta/armazenamento de métricas) — Fase 12.
-  # O app roda no host (uvicorn :8000); scrape via host.docker.internal (Docker Desktop) /
-  # host-gateway (Linux). Ver prometheus/prometheus.yml.
+  # Agora a API roda na stack; o Prometheus a scrapeia por nome de serviço (energyhub-api:8000).
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: energyhub-prometheus
+    restart: unless-stopped
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -121,18 +185,19 @@ services:
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - alertmanager
+    networks:
+      - energyhub-network
 
   # Observabilidade — Grafana (dashboards) — Fase 12. Data source + dashboards provisionados.
   grafana:
     image: grafana/grafana:11.2.0
     container_name: energyhub-grafana
+    restart: unless-stopped
     environment:
-      GF_SECURITY_ADMIN_USER: admin        # placeholder — trocar antes de produção
-      GF_SECURITY_ADMIN_PASSWORD: admin     # placeholder — trocar antes de produção
+      GF_SECURITY_ADMIN_USER: admin        # placeholder — rotacionar antes de produção
+      GF_SECURITY_ADMIN_PASSWORD: admin     # placeholder — rotacionar antes de produção
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
@@ -142,17 +207,27 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+    networks:
+      - energyhub-network
 
   # Observabilidade — Alertmanager (roteamento/notificação de alertas) — Fase 12.
   alertmanager:
     image: prom/alertmanager:v0.27.0
     container_name: energyhub-alertmanager
+    restart: unless-stopped
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
     volumes:
       - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     ports:
       - "9093:9093"
+    networks:
+      - energyhub-network
+
+networks:
+  energyhub-network:
+    name: energyhub-network
+    driver: bridge
 
 volumes:
   postgres_data:

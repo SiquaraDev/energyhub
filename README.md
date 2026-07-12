@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 13 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 14 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -69,8 +69,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > `/metrics` (HTTP + negócio + recursos) com **Prometheus/Grafana/Alertmanager** (dashboards e alertas),
 > e uma **suíte de testes automatizados** (pytest) com **_quality gate_ de 80% de cobertura** guarda o
 > comportamento — unitários dos serviços, testes de componente dos routers e integração (repositórios
-> via Testcontainers + API via `TestClient`).
-> **Próxima: Fase 14** (containerização e orquestração). Consulte o
+> via Testcontainers + API via `TestClient`). Por fim, a **própria aplicação está containerizada**
+> (`Dockerfile` multi-stage, não-root) e **toda a stack sobe com um comando** (`docker compose up -d`):
+> API + Postgres/Redis/RabbitMQ/Kafka/Elasticsearch/Prometheus/Grafana numa rede compartilhada, com
+> health checks, ordem de inicialização e volumes nomeados.
+> **Próxima: Fase 15** (decomposição em microsserviços). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -276,32 +279,43 @@ git clone https://github.com/Matheus-Siquara/energyhub.git
 cd energyhub
 ```
 
-### 2. Subir a infraestrutura (PostgreSQL + Redis + RabbitMQ + Kafka + Elasticsearch + Observabilidade)
+### 2. Subir a stack completa com um comando (Fase 14)
+
+`docker compose up -d` constrói a imagem da API (pelo `Dockerfile`) e sobe **tudo** — API +
+PostgreSQL, Redis, RabbitMQ, Kafka+Zookeeper, Elasticsearch, Prometheus, Grafana e Alertmanager —
+numa rede compartilhada, com health checks e ordem de inicialização (a API só inicia depois das
+dependências saudáveis):
 
 ```bash
-docker compose up -d          # + Prometheus · Grafana · Alertmanager (Fase 12)
-docker exec energyhub-redis redis-cli ping              # PONG
-docker exec energyhub-rabbitmq rabbitmq-diagnostics ping  # Ping succeeded  (UI: http://localhost:15672)
-docker exec energyhub-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null && echo "kafka ok"
-curl -s http://localhost:9200/_cluster/health           # status: green (Elasticsearch)
+docker compose up -d                                    # constrói a API + sobe a stack toda
+docker compose ps                                       # todos "Up (healthy)"
+curl -s http://localhost:8000/health                    # {"status":"healthy"}
 ```
 
-> **Observabilidade (Fase 12):** com a app rodando no host (passo 3), o Prometheus (**http://localhost:9090**)
-> scrapeia o `/metrics` via `host.docker.internal:8000`; Grafana em **http://localhost:3000**
-> (`admin`/`admin` — _placeholder_) com data source e dashboards provisionados; Alertmanager em
-> **http://localhost:9093**.
+No **primeiro boot** com o banco vazio, aplique as migrações (o admin é semeado por elas):
 
-### 3. Instalar dependências e rodar a aplicação
+```bash
+docker compose exec energyhub-api alembic upgrade head
+```
 
-O projeto Python usa _layout src_ e vive na subpasta `energyhub/`:
+Portas: API **:8000** · Postgres **:5432** · Redis **:6379** · RabbitMQ **:5672** (UI **:15672**) ·
+Kafka **:9092** · Elasticsearch **:9200** · Prometheus **:9090** · Grafana **:3000** (`admin`/`admin`
+— _placeholder_) · Alertmanager **:9093**. O Prometheus scrapeia a API por nome de serviço
+(`energyhub-api:8000`).
+
+> ⚠️ As credenciais e o `SECRET_KEY` no `docker-compose.yml` são **placeholders de desenvolvimento**
+> — rotacionar e externalizar (`.env` / secrets manager) antes de produção.
+
+### 3. Desenvolvimento local (alternativa, sem containerizar a API)
+
+Para iterar na aplicação com _hot reload_, rode só a infra pelo compose e a API no host (o projeto
+Python usa _layout src_ e vive na subpasta `energyhub/`):
 
 ```bash
 cd energyhub
 poetry install
-poetry run uvicorn energyhub.main:app --reload
+poetry run uvicorn energyhub.main:app --reload          # http://localhost:8000
 ```
-
-A API sobe em **http://localhost:8000**:
 
 ```bash
 curl http://localhost:8000/           # {"message": "EnergyHub API"}

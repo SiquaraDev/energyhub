@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–13** (`0.0.0` → `0.13.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.14.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–14** (`0.0.0` → `0.14.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.15.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **89 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **96 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -37,6 +37,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Busca full-text (Fase 11):** serviço **Elasticsearch** (single-node, healthcheck, volume) no compose + deps `elasticsearch`/`elasticsearch-dsl`; `ElasticsearchConfig` (client factory + `create_indices` idempotente); documentos `ClientDocument`/`ContractDocument` (keyword/text, analisador português, `from_entity`); repositórios de busca (index/delete/finders); `ClientSearchService` (`multi_match` com boosting + `fuzziness='AUTO'`, filtro por localização, busca avançada com `SearchFilter`/`FilterCondition` + `min_score`); router `/api/v1/search/clients` (full-text, location, advanced).
 - **Observabilidade (Fase 12):** instrumentação Prometheus (`/metrics` via `prometheus-fastapi-instrumentator`, métricas HTTP `fastapi_*` + `application_info`); `MetricsConfig`/`BusinessMetrics` (`client_created_total`, `contract_created_total{status}`, `invoice_paid_total`, `clients_active`, `operation_duration_seconds`) com serviços instrumentados; recursos do host via `psutil`; stack Prometheus + Grafana (data source + 3 dashboards) + Alertmanager (regras de latência/erro/memória) no compose.
 - **Suíte de testes e gate de cobertura (Fase 13):** toolchain `pytest`/`pytest-asyncio`/`pytest-mock`/`pytest-cov`/`testcontainers` (grupo `dev`) e `[tool.pytest.ini_options]` com gate embutido (`--cov=energyhub --cov-fail-under=80`); testes unitários dos 15 serviços com colaboradores `AsyncMock`, testes de componente dos 13 routers via `TestClient`, e integração (repositórios via `PostgresContainer` + API via `TestClient` com JWT real); `docker-compose.test.yml` (PG/Redis/RabbitMQ em 5433/6380/5673); cobertura **87% in-container** (85% no host, com a integração pulada).
+- **Containerização e orquestração (Fase 14):** `Dockerfile` multi-stage (build com Poetry `--only main` → runtime `python:3.12-slim`, não-root `appuser`, `EXPOSE 8000`, `CMD uvicorn`) + `.dockerignore`; `docker-compose.yml` estendido com o serviço **`energyhub-api`** e toda a infra numa rede bridge `energyhub-network`, `restart: unless-stopped`, **startup health-gated** (`depends_on: service_healthy`) e config 12-factor por variável de ambiente (URLs por nome de serviço); volumes nomeados para todos os serviços com estado + AOF do Redis; Prometheus passa a scrapear `energyhub-api:8000`. A stack sobe com **um comando** (`docker compose up -d`).
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -93,17 +94,25 @@ Decomposição do monólito modular em serviços FastAPI independentemente impla
 
 ---
 
-## [0.14.0] — 🔮 Planejado · _Fase 14 · Containerização_
+## [0.14.0] — 2026-07-12 · ✅ Lançado · _Fase 14 · Containerização_
 
 Aplicação empacotada em imagem Docker _slim_ e _non-root_, com a stack completa
 orquestrada por Docker Compose (boot com um único comando).
 
 ### Adicionado
-- `Dockerfile` _multi-stage_ (estágio de _build_ com Poetry + estágio de runtime `python:3.12-slim` como `appuser`, expondo a porta 8000) e `.dockerignore`.
-- `docker-compose.yml` definindo `energyhub-api` + PostgreSQL, Redis, RabbitMQ, Elasticsearch, Kafka + Zookeeper, Prometheus e Grafana em uma rede _bridge_ com `restart: unless-stopped`.
-- Configuração 12-factor via variáveis de ambiente (`DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL`, `ELASTICSEARCH_URL`, `SECRET_KEY`, ...).
-- Inicialização condicionada à prontidão das dependências (`depends_on` + _healthchecks_).
-- Volumes nomeados para todos os serviços com estado (dados sobrevivem à recriação dos containers).
+- `Dockerfile` _multi-stage_: estágio de _build_ resolve só as deps de produção (`poetry install --only main --no-root`) num venv em `/app/.venv`; estágio de runtime `python:3.12-slim` copia apenas o venv + o código, roda como **`appuser`** (não-root), `EXPOSE 8000` e `CMD uvicorn energyhub.main:app`. `.dockerignore` enxuga o contexto de build.
+- Serviço **`energyhub-api`** (construído pelo `Dockerfile`) no `docker-compose.yml`, ao lado de PostgreSQL, Redis, RabbitMQ, Elasticsearch, Kafka + Zookeeper, Prometheus, Grafana e Alertmanager — todos numa rede _bridge_ `energyhub-network` com `restart: unless-stopped`.
+- Configuração 12-factor via variáveis de ambiente (`DATABASE_URL`, `REDIS_URL`/`REDIS_HOST`, `RABBITMQ_URL`, `ELASTICSEARCH_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `SECRET_KEY`, `ENVIRONMENT`); todas as URLs endereçam as dependências por **nome de serviço** (não `localhost`), sem segredo embutido na imagem.
+- Inicialização **health-gated**: `depends_on: condition: service_healthy` na API para Postgres/Redis/RabbitMQ/Elasticsearch/Kafka (com `start_period` no ES/Kafka para convergência determinística).
+- Volumes nomeados para todos os serviços com estado + **AOF do Redis** (dados sobrevivem à recriação dos containers e a ciclos `down`/`up`).
+- `prometheus/prometheus.yml` atualizado para scrapear a API por nome de serviço (`energyhub-api:8000`), agora que ela roda na stack.
+
+### Alterado
+- Versões de imagem mantidas nas já validadas nas Fases 10–12 (ES `8.13.4`, Kafka/Zookeeper `7.6.1`, Prometheus `v2.54.1`, Grafana `11.2.0`) em vez das do plano (`8.11.0`/`7.5.0`) — um _downgrade_ do Elasticsearch quebraria o volume de dados existente.
+
+### Notas
+- Validado na stack real: imagem builda e roda standalone (`/health` 200, processo como `appuser`); `docker compose up -d` sobe 10 serviços saudáveis; **smoke E2E** (login → usuário → cliente → contrato + cache + busca + mensageria) passou; persistência confirmada num ciclo `down`/`up`; RabbitMQ UI, tópicos Kafka, target `energyhub` **UP** no Prometheus e Grafana `:3000` OK.
+- **Segurança:** credenciais e `SECRET_KEY` no compose são **placeholders de desenvolvimento** — rotacionar e externalizar (`.env` / secrets manager) antes de produção. Primeiro boot com banco vazio: `docker compose exec energyhub-api alembic upgrade head`.
 
 ---
 

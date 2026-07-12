@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 13
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.13.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 14 — Containerização e Orquestração**.
-> As **Fases 14–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 14
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.14.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 15 — Decomposição em Microsserviços**.
+> As **Fases 15–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -337,13 +337,33 @@ expõe doubles compartilhados. **Componente** dos 13 routers via `TestClient` + 
 Postgres é acessível) **279 passam** com **cobertura 87%**, gate satisfeito. Estabilização não revelou defeito
 de aplicação — apenas ajustes de _harness_ (isolamento de cache; `raise_server_exceptions=False` no TestClient).
 
-### 📋 Fase 14 — Containerização e Orquestração Completa · `0.14.0`
+### ✅ Fase 14 — Containerização e Orquestração Completa · `0.14.0` _(concluída)_
 **Objetivo:** empacotar a aplicação em imagem Docker _slim_ e _non-root_ e orquestrar toda a stack com Docker Compose (boot com um comando).
 
 **Entregáveis:**
 - `application-container-image` (Dockerfile _multi-stage_ + `.dockerignore`) · `service-orchestration` (rede + `depends_on`/_healthchecks_)
 - `container-configuration` (12-factor, variáveis de ambiente) · `data-persistence-volumes`
 - `messaging-and-streaming-containers` · `observability-stack-containers` · `environment-validation`
+
+_Como implementado:_ **Dockerfile multi-stage** — estágio `builder` resolve só as deps de produção
+(`poetry install --only main --no-root`) num venv em `/app/.venv`; o `runtime` (`python:3.12-slim`)
+copia apenas o venv + o código, roda como **`appuser`** (não-root), `EXPOSE 8000` e `CMD uvicorn`. Um
+`.dockerignore` enxuga o contexto. O `docker-compose.yml` foi estendido para incluir o serviço
+**`energyhub-api`** (construído pelo Dockerfile) ao lado de toda a infra, numa **rede bridge
+`energyhub-network`**, com `restart: unless-stopped` e **startup health-gated** (`depends_on:
+condition: service_healthy` em Postgres/Redis/RabbitMQ/Elasticsearch/Kafka; `start_period` no ES/Kafka
+tornou a convergência determinística). Config **12-factor**: todas as URLs endereçam as dependências
+por **nome de serviço** (não `localhost`), sem segredo embutido na imagem. Volumes nomeados para todos
+os serviços com estado + **AOF do Redis**; o Prometheus passou a **scrapear `energyhub-api:8000`**.
+Verificado na stack real: imagem builda e roda standalone (`/health` 200, processo como `appuser`);
+`docker compose up -d` sobe **10 serviços** (health-checked saudáveis); **smoke E2E** (login admin →
+usuário → cliente → contrato + cache + busca ES + mensageria) passou; `application_info{environment=
+"production"}` confirma a injeção de ambiente; **persistência** validada num ciclo `down`/`up`
+(dados PG + chave Redis sobreviveram); RabbitMQ UI (3.13.7), tópicos Kafka (`client/contract/financial/
+user-events`), Prometheus com o target `energyhub` **UP** e Grafana **:3000** saudável. Reconciliação:
+mantidas as versões já validadas nas Fases 10–12 (ES `8.13.4`, Kafka/ZK `7.6.1`, Prometheus `v2.54.1`,
+Grafana `11.2.0`) em vez das do plano (`8.11.0`/`7.5.0`) — baixar o ES quebraria o volume de dados
+existente. Credenciais/`SECRET_KEY` são placeholders de desenvolvimento a rotacionar antes de produção.
 
 ---
 
