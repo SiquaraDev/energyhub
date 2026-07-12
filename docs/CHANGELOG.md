@@ -6,11 +6,12 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.
 e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 > **Sobre este changelog.** O EnergyHub está em desenvolvimento e **ainda não possui um
-> _release_ estável**. As entradas de versão abaixo (`0.1.0` → `1.0.0`) representam os
-> **marcos planejados**, cada um correspondendo a uma das 18 fases especificadas em
+> _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
+> **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> Todas estão marcadas como **🔮 Planejado** e sem data definida até serem implementadas
-> e validadas.
+> As **Fases 0–2** (`0.0.0` → `0.2.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.3.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
 funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descontinuado** e
@@ -23,9 +24,10 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades.
-- _Scaffolding_ inicial da aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health`.
-- Configuração inicial do Poetry (`pyproject.toml`) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, flake8, mypy, ruff).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **14 capacidades** (7 da Fase 0 + 7 da Fase 2).
+- Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
+- **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
+- Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
 ---
@@ -249,35 +251,41 @@ Camada de domínio DDD completa e independente de infraestrutura.
 
 ---
 
-## [0.2.0] — 🔮 Planejado · _Fase 2 · Clean Architecture_
+## [0.2.0] — 2026-07-12 · ✅ Lançado · _Fase 2 · Clean Architecture_
 
 Esqueleto de módulos e classes base compartilhadas.
 
 ### Adicionado
-- Estrutura de **9 módulos** (`shared`, `auth`, `clients`, `contracts`, `negotiations`, `financial`, `audit`, `notifications`, `reports`) × **4 camadas** (domínio, aplicação, infraestrutura, apresentação).
+- Estrutura de **9 módulos** (`shared`, `auth`, `clients`, `contracts`, `negotiations`, `financial`, `audit`, `notifications`, `reports`) × **4 camadas** (domínio, aplicação, infraestrutura, apresentação), com sub-pacotes — **211 `__init__.py`**.
 - Classes base de domínio (`BaseEntity`, interface `Repository`, hierarquia `DomainException`: `ResourceNotFound`, `Validation`, `BusinessRule`).
 - Classes base de aplicação (`BaseDTO`, `UseCase`, `ApplicationException`).
 - Classe base de infraestrutura (`SQLAlchemyRepository` com CRUD async).
 - Classes base de apresentação (`BaseRouter`, _exception handler_ global, `ErrorResponse`).
-- Módulo `shared` (util, constant, enums) e config aprimorado (CORS + injeção de dependências).
+- Módulo `shared` (`util`, `constant`, `enums`) e `config` promovido a **pacote** (`settings.py` + reexport `Settings/get_settings/settings`), com `config/dependencies/` para injeção de dependência e CORS de desenvolvimento em `main.py`.
+
+### Corrigido
+- **Revisão adversarial:** `BaseEntity` passou a usar `@dataclass(kw_only=True)` (sem isso, subclasses com campos obrigatórios quebrariam) e ganhou o teste de regressão `tests/test_base_entity.py`.
+
+### Alterado
+- `ruff` configurado para **ignorar N818** (o projeto usa nomes `*Exception` para as exceções).
 
 ---
 
-## [0.1.0] — 🔮 Planejado · _Fase 1 · Scaffolding_
+## [0.1.0] — 2026-07-12 · ✅ Lançado · _Fase 1 · Scaffolding_
 
 Ambiente de desenvolvimento, tooling e conectividade com o banco.
 
 ### Adicionado
-- Repositório Git com `.gitignore` abrangente (Python/IDE/OS/Docker/env).
-- Estrutura do projeto FastAPI com Poetry e Python 3.12+.
-- Dependências principais (FastAPI, SQLAlchemy 2.0, Pydantic, asyncpg, Alembic, python-jose, passlib) e ferramentas de qualidade (pytest, black, flake8, mypy, ruff).
+- Repositório Git com `.gitignore` abrangente (Python/IDE/OS/Docker/env) e `poetry.lock` versionado.
+- Estrutura do projeto FastAPI no formato **PEP 621 `[project]`** + `[dependency-groups]` (Poetry 2.x), Python **3.12+**, sobre **layout `src`** (`src/energyhub/`).
+- Dependências principais (FastAPI, SQLAlchemy 2.0 async, Pydantic, asyncpg, Alembic, python-jose, passlib) e ferramentas de qualidade (pytest, black, isort, flake8, mypy, ruff, além de `httpx` para o `TestClient` do Starlette).
 - `docker-compose.yml` com PostgreSQL 16.
 - Configurações _type-safe_ via `pydantic-settings`.
 - Aplicação FastAPI básica com endpoints raiz e `/health`.
 
 ---
 
-## [0.0.0] — 🔮 Planejado · _Fase 0 · Planejamento_
+## [0.0.0] — 2026-07-11 · ✅ Lançado · _Fase 0 · Planejamento_
 
 Fundação de documentação — **sem código** (apenas artefatos de design).
 

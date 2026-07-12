@@ -52,9 +52,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** as especificações das 18 fases estão completas; a implementação está no
-> início (aplicação FastAPI básica com `/` e `/health`). Consulte o [ROADMAP](docs/ROADMAP.md) e o
-> [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
+> ⚙️ **Estado atual:** **Fases 0, 1 e 2 concluídas** — o planejamento está completo
+> ([`docs/fase-0`](docs/fase-0/)), o _scaffolding_ (**FastAPI + Poetry + PostgreSQL**) e o esqueleto
+> de **Clean Architecture com classes-base** já existem, o **primeiro teste de regressão** está
+> presente e o **CORS** está configurado. **Próxima: Fase 3** (modelo de domínio). Consulte o
+> [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
 
@@ -109,10 +111,14 @@ flowchart TB
 
 | Camada | Pacotes | Responsabilidade |
 | :----- | :------ | :--------------- |
-| **Domain** | `entity`, `valueobject`, `aggregate`, `repository`, `service`, `exception` | Regras de negócio puras |
+| **Domain** | `entity`, `valueobject`, `repository`, `service`, `exception` (+ `aggregate` na Fase 3) | Regras de negócio puras |
 | **Application** | `dto`, `mapper`, `usecase`, `service`, `exception` | Orquestração de casos de uso |
 | **Infrastructure** | `persistence`, `messaging`, `config`, `security` | Detalhes técnicos e I/O |
 | **Presentation** | `router`, `request`, `response`, `exception` | Interface HTTP (REST) |
+
+As **classes-base** que sustentam essas camadas (`BaseEntity`, `Repository`, `UseCase`,
+`SQLAlchemyRepository`, `BaseRouter`, entre outras) vivem no módulo `shared` e estão documentadas
+no guia **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
 
@@ -176,34 +182,54 @@ flowchart TB
 
 ## 📂 Estrutura do projeto
 
-**Estrutura atual (raiz do repositório):**
+**Estrutura do repositório:**
 
 ```
 energyhub/
-├── docs/                      # 📚 Documentação (README, ROADMAP, CHANGELOG)
+├── docs/                      # 📚 Documentação (README, ROADMAP, CHANGELOG, ARCHITECTURE, fase-0/)
 ├── openspec/                  # 📋 Especificações spec-driven (18 fases)
 │   ├── changes/
 │   │   ├── implement-fase-0/  #    proposal · design · tasks · specs/
 │   │   ├── implement-fase-1/
 │   │   └── ...                #    até implement-fase-17
+│   ├── specs/                 #    baseline de capacidades
 │   └── config.yaml
 ├── energyhub/                 # 🐍 Projeto Python (Poetry, layout src/)
 │   ├── src/energyhub/
-│   │   └── main.py            #    app FastAPI (endpoints / e /health)
-│   ├── tests/
-│   └── pyproject.toml
+│   │   ├── main.py            #    app FastAPI (/ , /health, CORS)
+│   │   ├── config/            #    settings.py · dependencies/  (pacote)
+│   │   ├── shared/            #    classes-base + util/ constant/ enums/
+│   │   ├── auth/  clients/  contracts/  negotiations/
+│   │   └── financial/  audit/  notifications/  reports/
+│   ├── tests/                 #    conftest.py · test_base_entity.py
+│   └── pyproject.toml  poetry.lock
 ├── backend/  database/  docker/  scripts/
+├── docker-compose.yml         # PostgreSQL 16
 ├── LICENSE                    # MIT
 └── README.md                  # 👈 você está aqui
 ```
 
-**Estrutura-alvo de um módulo (a partir da Fase 2):**
+**Módulo `shared` (base reutilizável):**
+
+```
+src/energyhub/shared/
+├── domain/          entity/ (BaseEntity) · repository/ (Repository) · exception/ (DomainException)
+├── application/     dto/ (BaseDTO) · usecase/ (UseCase) · exception/ (ApplicationException)
+├── infrastructure/  persistence/ (SQLAlchemyRepository) · messaging/ · config/ · security/
+├── presentation/    router/ (BaseRouter) · exception/ (global_exception_handler) · response/ (ErrorResponse)
+└── util/            constant/            enums/
+```
+
+**Estrutura de um módulo de negócio (4 camadas):**
+
+Cada um dos **8 módulos de negócio** (`auth`, `clients`, `contracts`, `negotiations`, `financial`,
+`audit`, `notifications`, `reports`) segue as **4 camadas** com os mesmos sub-pacotes:
 
 ```
 src/energyhub/<módulo>/
 ├── domain/
-│   ├── entity/         valueobject/   aggregate/
-│   ├── repository/     service/       exception/
+│   ├── entity/         valueobject/   repository/
+│   ├── service/        exception/
 ├── application/
 │   ├── dto/            mapper/        usecase/
 │   ├── service/        exception/
@@ -289,7 +315,10 @@ como `Authorization: Bearer <token>` nas rotas protegidas.
 
 ## 🧪 Testes
 
-_A suíte de testes é estabelecida na Fase 13_, com **cobertura mínima de 80%**:
+A **primeira estrutura de testes já existe**: [`tests/conftest.py`](energyhub/tests/conftest.py)
+com uma _fixture_ `TestClient` e [`tests/test_base_entity.py`](energyhub/tests/test_base_entity.py)
+(regressão da `BaseEntity`). A **suíte completa** e a **cobertura mínima de 80%** são estabelecidas
+na **Fase 13**:
 
 ```bash
 cd energyhub
@@ -354,6 +383,7 @@ Isso mantém escopo, design e requisitos versionados e revisáveis **antes** de 
 | Documento | Descrição |
 | :-------- | :-------- |
 | [docs/README.md](docs/README.md) | Índice da documentação |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Guia da arquitetura base: classes-base do `shared` e regra de dependência |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Plano de evolução detalhado das 18 fases |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Histórico de versões (Keep a Changelog + SemVer) |
 | [openspec/changes/](openspec/changes/) | Especificações _spec-driven_ completas |

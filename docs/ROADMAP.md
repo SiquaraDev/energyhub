@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. A implementação
-> está no início — o repositório contém apenas o _scaffolding_ da aplicação FastAPI
-> (`app`, endpoints `/` e `/health`) e a configuração inicial do Poetry. Portanto, todas as
-> fases estão marcadas como **📋 Planejado**. Consulte o [CHANGELOG](./CHANGELOG.md) para o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0, 1
+> e 2 estão CONCLUÍDAS e arquivadas** (versões `0.1.0` e `0.2.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 3 — Modelo de Domínio (DDD)**. As
+> **Fases 3–17 permanecem 📋 Planejadas**. Consulte o [CHANGELOG](./CHANGELOG.md) para o
 > mapeamento fase → versão.
 
 ---
@@ -75,7 +75,7 @@ timeline
 
 ## 🚩 Etapa 0 — Planejamento
 
-### 📋 Fase 0 — Planejamento e Design do Sistema
+### ✅ Fase 0 — Planejamento e Design do Sistema _(concluída)_
 **Objetivo:** estabelecer toda a documentação de planejamento (escopo, requisitos, modelo de
 domínio e arquitetura) **antes de escrever código**, evitando retrabalho e alinhando os
 _stakeholders_ — crítico dados os requisitos financeiros e regulatórios.
@@ -95,7 +95,7 @@ _stakeholders_ — crítico dados os requisitos financeiros e regulatórios.
 
 ## 🏗️ Etapa 1 — Fundação
 
-### 📋 Fase 1 — Scaffolding do Projeto e Infraestrutura · `0.1.0`
+### ✅ Fase 1 — Scaffolding do Projeto e Infraestrutura · `0.1.0` _(concluída)_
 **Objetivo:** montar o ambiente de desenvolvimento, controle de versão, gerência de
 dependências e conectividade com o banco.
 
@@ -106,7 +106,9 @@ dependências e conectividade com o banco.
 
 **Tecnologias introduzidas:** Poetry, FastAPI, Uvicorn, SQLAlchemy 2.0, asyncpg, Pydantic, pydantic-settings, Alembic, Docker Compose, PostgreSQL 16.
 
-### 📋 Fase 2 — Estrutura Clean Architecture e Classes Base · `0.2.0`
+_Como implementado:_ código no **layout `src`** (`src/energyhub/`); app em `main.py` (`/`, `/health`); `config` inicial via pydantic-settings; verificado com **ruff / mypy / black / pytest** limpos.
+
+### ✅ Fase 2 — Estrutura Clean Architecture e Classes Base · `0.2.0` _(concluída)_
 **Objetivo:** criar o esqueleto de módulos e as classes/interfaces base compartilhadas por
 todas as camadas, evitando duplicação e garantindo consistência.
 
@@ -117,6 +119,8 @@ todas as camadas, evitando duplicação e garantindo consistência.
 - `infrastructure-layer-base` (`SQLAlchemyRepository`)
 - `presentation-layer-base` (`BaseRouter`, _exception handlers_, `ErrorResponse`)
 - `shared-module-organization` · `config-module-enhancement` (CORS + injeção de dependências)
+
+_Como implementado:_ **layout `src`**; **`config` como pacote** (`settings.py` + reexport + `config/dependencies/`); `BaseEntity` como `@dataclass(kw_only=True)`; **211 `__init__.py`** nos 9 módulos × 4 camadas; verificado com **ruff / mypy / black / pytest** limpos.
 
 ---
 
