@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–3** (`0.0.0` → `0.3.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.4.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–4** (`0.0.0` → `0.4.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.5.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,9 +24,10 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **26 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **31 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
+- **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -224,17 +225,24 @@ Camada de acesso a dados async, tipada e testável sobre o schema da Fase 4.
 
 ---
 
-## [0.4.0] — 🔮 Planejado · _Fase 4 · Schema & Migrações_
+## [0.4.0] — 2026-07-12 · ✅ Lançado · _Fase 4 · Schema & Migrações_
 
 Schema PostgreSQL versionado, reproduzível e reversível via Alembic.
 
 ### Adicionado
-- Alembic configurado (`alembic.ini`, `alembic/env.py`) ligado às _settings_ e ao `Base.metadata`.
-- Migrações criando todas as tabelas do domínio (chaves UUID via `gen_random_uuid()`, FKs com `ON DELETE` apropriado, tabelas de _join_).
-- Índices simples e compostos para caminhos de consulta frequentes.
-- `CHECK constraints` (formato de e-mail/CNPJ, valores monetários positivos, ordenação de datas) e _trigger_ compartilhado `update_updated_at_column()`.
-- _Seed_ idempotente: papéis `ADMIN`/`OPERATOR`/`CLIENT`, permissões base, grants do ADMIN e usuário admin padrão (UUIDs fixos).
+- Ambiente Alembic (`alembic.ini`, `alembic/env.py`, `script.py.mako`, `versions/`) ligado às _settings_ (`database_url`) e ao `Base.metadata`, com nomes de arquivo UTC-timestamped e suporte **online** (asyncpg + `NullPool`) e **offline** (SQL com `literal_binds`).
+- `Base` declarativa em `shared/infrastructure/persistence/database.py` e marcador `py.typed` (pacote tipado, PEP 561).
+- **8 migrações encadeadas** (`0001`→`0008`) criando as **15 tabelas** do domínio (`users`, `roles`, `permissions`, `user_roles`, `role_permissions`, `clients`, `contacts`, `contracts`, `negotiations`, `energy_transactions`, `invoices`, `payments`, `audit_logs`, `notifications`, `reports`) — PKs UUID via `gen_random_uuid()`, colunas `Numeric` para valores monetários, timestamps e FKs com `ON DELETE` CASCADE (filhos) ou RESTRICT (registros protegidos).
+- **42 índices**: simples nos campos de _lookup_/FK; compostos em `contracts(client_id, status)` e `contracts(start_date, end_date)`; temporais em `audit_logs.created_at` e `notifications.created_at`.
+- **4 CHECK constraints** (formato de e-mail e CNPJ, `end_date > start_date`, valores de contrato positivos) e a função compartilhada `update_updated_at_column()` com **13 triggers** de `updated_at`.
+- _Seed_ idempotente: papéis `ADMIN`/`OPERATOR`/`CLIENT`, 4 permissões base, grants do ADMIN e usuário `admin` (UUIDs fixos, hash bcrypt).
 - Extensão `pgcrypto` garantida na primeira migração.
+
+### Alterado
+- Domínio `Contract` **endurecido** para alinhar com os CHECKs do banco: `end_date` deve ser **posterior** a `start_date` e `energy_amount`/`unit_price`/`total_value` devem ser **estritamente positivos** (antes permitia igualdade/zero).
+
+### Segurança
+- ⚠️ O usuário `admin` semeado usa a senha de _bootstrap_ `ChangeMe123!` (hash bcrypt) — **deve ser rotacionada antes de qualquer uso real**. O _seed_ é reversível.
 
 ---
 

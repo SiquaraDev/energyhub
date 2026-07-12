@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0, 1,
-> 2 e 3 estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.3.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 4 — Schema do Banco e Migrações
-> Alembic**. As **Fases 4–17 permanecem 📋 Planejadas**. Consulte o [CHANGELOG](./CHANGELOG.md)
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 4
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.4.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 5 — Persistência: ORM & Repositórios**.
+> As **Fases 5–17 permanecem 📋 Planejadas**. Consulte o [CHANGELOG](./CHANGELOG.md)
 > para o mapeamento fase → versão.
 
 ---
@@ -135,11 +135,11 @@ agregados) de forma pura, sem acoplamento a infraestrutura.
 - `domain-value-objects` — `CNPJ`, `Email`, `Money`, `PhoneNumber`, `Address`, `Percentage` (_frozen dataclasses_ com validação)
 - `domain-enums` — `ContractStatus`, `NegotiationStatus`, `InvoiceStatus`, `TransactionType`, etc. (`str, Enum`)
 - `domain-aggregates` — `AuthAggregate`, `ClientAggregate`, `ContractAggregate`, `NegotiationAggregate`, `FinancialAggregate`
-- `domain-validations` — validadores Pydantic e métodos de transição de estado nas entidades
+- `domain-validations` — validações no `__post_init__` (`ValidationException`) e métodos de transição de estado nas entidades
 
 _Como implementado:_ **domínio puro** (sem imports de framework): entidades `@dataclass(kw_only=True)` com validação no **`__post_init__`** (`ValidationException`); relacionamentos por **referências Python** + **agregados**; VOs como _frozen dataclasses_; verificado com **ruff / mypy / black** + _smoke test_ comportamental.
 
-### 📋 Fase 4 — Schema do Banco e Migrações Alembic · `0.4.0`
+### ✅ Fase 4 — Schema do Banco e Migrações Alembic · `0.4.0` _(concluída)_
 **Objetivo:** materializar o schema PostgreSQL de forma versionada, reproduzível e reversível.
 
 **Entregáveis:**
@@ -148,6 +148,8 @@ _Como implementado:_ **domínio puro** (sem imports de framework): entidades `@d
 - `database-indexes` — índices simples e compostos para _hot paths_
 - `database-constraints` — `CHECK` (e-mail/CNPJ, valores positivos, ordenação de datas) + _trigger_ `updated_at`
 - `database-seed-data` — _seed_ idempotente (papéis `ADMIN`/`OPERATOR`/`CLIENT`, permissões e usuário admin padrão)
+
+_Como implementado:_ **8 migrações encadeadas** (`0001`→`0008`) criando **15 tabelas** de domínio, **42 índices**, **4 CHECK constraints**, **função + 13 triggers** `updated_at` e o _seed_ (3 papéis, 4 permissões, grants do ADMIN e usuário `admin` com hash bcrypt); `Base` declarativa em `shared/infrastructure/persistence/database.py` e `env.py` (async/`NullPool`, online+offline). Validado contra o **PostgreSQL do Docker** (16 tabelas, `alembic_version=0008`, cenários de CHECK/FK/trigger e _round-trip_ `downgrade base`→`upgrade head`). O domínio `Contract` foi **endurecido** (valores estritamente positivos, `end_date > start_date`) para alinhar com os CHECKs do banco.
 
 ### 📋 Fase 5 — Persistência: ORM & Repositórios · `0.5.0`
 **Objetivo:** conectar domínio e banco com uma camada de persistência async, tipada e testável.

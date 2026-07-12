@@ -1,12 +1,13 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–3)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–4)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 e 3 — Clean Architecture, Classes Base e Modelo de Domínio (DDD)** (versão `0.3.0`).
-Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md) define _como o código
-**deveria** se organizar_ (arquitetura planejada), este artefato registra _o que **de fato** existe
-no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as **classes-base** já
-implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_, enums e agregados)
-das Fases 2–3, suas **assinaturas reais** e como estendê-las nas próximas fases.
+**Fases 2 a 4 — Clean Architecture, Classes Base, Modelo de Domínio (DDD) e Schema do Banco**
+(versão `0.4.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md) define
+_como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que **de
+fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as **classes-base**
+já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_, enums e agregados)
+das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, suas **assinaturas reais** e
+como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -17,7 +18,7 @@ das Fases 2–3, suas **assinaturas reais** e como estendê-las nas próximas fa
 ## 🏛️ 1. Visão geral
 
 O EnergyHub segue **Clean Architecture** e **Domain-Driven Design (DDD)** sobre a stack
-**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 3, o código
+**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 4, o código
 Python está organizado assim:
 
 | Dimensão | Valor (as-built) |
@@ -51,7 +52,10 @@ que se repete nos 8 módulos de negócio):
 energyhub/                              # projeto Poetry (raiz Python)
 ├── pyproject.toml   poetry.lock   README.md
 ├── .env                                # git-ignored (roda a partir de energyhub/)
+├── alembic.ini                         # config do Alembic (Fase 4)
+├── alembic/                            # env.py (async · online/offline) · versions/ (8 migrações 0001→0008)
 ├── src/energyhub/
+│   ├── py.typed                        # marcador PEP 561 (pacote tipado) — Fase 4
 │   ├── main.py                         # app FastAPI (/ , /health, CORS)
 │   ├── config/                         # pacote de configuração
 │   │   ├── __init__.py                 # reexporta Settings, get_settings, settings
@@ -76,7 +80,9 @@ energyhub/                              # projeto Poetry (raiz Python)
 │   │   │   ├── service/                         # (serviços de aplicação — futuro)
 │   │   │   └── exception/application_exception.py  # ApplicationException
 │   │   ├── infrastructure/
-│   │   │   ├── persistence/sqlalchemy_repository.py  # SQLAlchemyRepository[T, ID]
+│   │   │   ├── persistence/
+│   │   │   │   ├── database.py                  # Base declarativa (Fase 4) — target_metadata do Alembic
+│   │   │   │   └── sqlalchemy_repository.py     # SQLAlchemyRepository[T, ID]
 │   │   │   ├── messaging/                       # (eventos/mensageria — futuro)
 │   │   │   ├── config/                          # (config de infra — futuro)
 │   │   │   └── security/                        # (segurança — futuro)
@@ -105,8 +111,10 @@ energyhub/                              # projeto Poetry (raiz Python)
 > camada `domain/` de cada módulo de negócio (`entity/`, `exception/` e os `*_aggregate.py`) deixaram
 > de ser pacotes vazios (ver Seção 8). Os demais diretórios sem arquivo
 > `.py` de conteúdo (ex.: `mapper/`, `messaging/`, `service/`) seguem como pacotes vazios, prontos para
-> serem preenchidos nas fases seguintes. O `docker-compose.yml` (PostgreSQL 16) vive na raiz do
-> repositório, um nível acima de `energyhub/`.
+> serem preenchidos nas fases seguintes. Na Fase 4, `shared/infrastructure/persistence/` ganhou a
+> `Base` declarativa (`database.py`) e o projeto Poetry passou a conter `alembic.ini` + `alembic/`
+> (ver Seção 9). O `docker-compose.yml` (PostgreSQL 16) vive na raiz do repositório, um nível acima
+> de `energyhub/`.
 
 ---
 
@@ -186,8 +194,9 @@ class SqlAlchemyClientRepository(SQLAlchemyRepository[ClientModel, UUID]):
 ```
 
 > ⚠️ `SQLAlchemyRepository` assume que `model_class` possui uma coluna `id` e usa
-> `# type: ignore[attr-defined]` nos acessos a `.id`. A tipagem será refinada quando a `Base`
-> declarativa do ORM existir (Fase 4).
+> `# type: ignore[attr-defined]` nos acessos a `.id`. A `Base` declarativa já existe desde a Fase 4
+> (`shared/infrastructure/persistence/database.py`); a tipagem será refinada quando os **modelos ORM**
+> forem mapeados sobre ela na **Fase 5**.
 
 ### 4.3 🧠 Criando um `UseCase`
 
@@ -376,7 +385,80 @@ As **3 exceções de domínio** estendem `DomainException` diretamente, em `<mó
 
 ---
 
-## 🚀 9. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🗄️ 9. Schema do Banco e Migrações (Fase 4)
+
+A **Fase 4** (versão `0.4.0`) materializou o **schema PostgreSQL** que dará lastro ao modelo de
+domínio, de forma **versionada e reversível** via **Alembic**. Ainda **não há modelos ORM** (isso é a
+Fase 5): as migrações são **escritas à mão** (`op.create_table`, `op.create_index`, `op.execute`),
+não geradas por _autogenerate_ (não haveria metadata para comparar sem os modelos).
+
+### 9.1 ⚙️ Configuração do Alembic
+
+- **`alembic.ini`** (na raiz do projeto Poetry) — `script_location = alembic`,
+  `prepend_sys_path = src`, `file_template` com timestamp UTC e `timezone = UTC`. A `sqlalchemy.url`
+  é apenas um _placeholder_, sobrescrito em tempo de execução.
+- **`alembic/env.py`** — **fonte única** de configuração: importa `settings.database_url` e
+  `Base.metadata`. Suporta migração **online** (engine assíncrono `asyncpg` com `NullPool`, via
+  `connection.run_sync`) e **offline** (`literal_binds`, gera SQL sem conectar ao banco).
+- **`Base`** (`shared/infrastructure/persistence/database.py`) — `DeclarativeBase` compartilhada; sua
+  `metadata` é o `target_metadata` do Alembic. Permanece vazia até os modelos ORM serem mapeados na
+  Fase 5.
+
+### 9.2 🧱 Migrações e tabelas
+
+**8 migrações encadeadas** (`0001`→`0008`), cada uma com `downgrade` simétrico:
+
+| Revisão | Conteúdo |
+| :-----: | :------- |
+| `0001` | `pgcrypto` + auth (`users`, `roles`, `permissions`, `user_roles`, `role_permissions`), `clients`, `contacts`, `contracts` + índices _inline_ |
+| `0002` | `negotiations`, `energy_transactions` |
+| `0003` | `invoices`, `payments` |
+| `0004` | `audit_logs` |
+| `0005` | `notifications`, `reports` |
+| `0006` | índices compostos e temporais |
+| `0007` | CHECK constraints + função/triggers `updated_at` |
+| `0008` | _seed_ (papéis, permissões, grants, usuário admin) |
+
+**15 tabelas** de domínio no total. Convenções: **PK UUID** com `server_default gen_random_uuid()`;
+`created_at`/`updated_at` `TIMESTAMP WITH TIME ZONE` default `CURRENT_TIMESTAMP`; valores monetários e
+quantidades em `Numeric` (nunca ponto flutuante); `JSONB` para `details`/`parameters`.
+
+### 9.3 🔗 Chaves estrangeiras, índices e constraints
+
+- **FKs — `ON DELETE`:** **CASCADE** para filhos _owned_ (`contacts`→`clients`,
+  `energy_transactions`→`negotiations`, `payments`→`invoices`, `notifications`→`users`, e os _joins_
+  `user_roles`/`role_permissions`); **RESTRICT** para referências protegidas (`contracts`→`clients`,
+  `invoices`→`clients`, `negotiations`→`contracts`, `audit_logs`→`users`, `reports`→`users`) — para
+  nunca perder silenciosamente registros contratuais, financeiros ou de auditoria.
+- **42 índices:** únicos nos identificadores de negócio (`username`, `email`, `cnpj`,
+  `contract_number`, ...); simples em colunas de _lookup_/FK; compostos em
+  `contracts(client_id, status)` e `contracts(start_date, end_date)`; temporais em
+  `audit_logs.created_at` e `notifications.created_at`.
+- **4 CHECK constraints:** formato de e-mail e de CNPJ (formatado ou 14 dígitos),
+  `end_date > start_date` e valores de contrato estritamente positivos — **alinhados com a validação
+  do domínio** (o `Contract` foi endurecido na Fase 4 para a mesma regra, ver Seção 8.4).
+- **`updated_at` automático:** função `update_updated_at_column()` + **13 triggers** `BEFORE UPDATE`
+  (um por tabela com `updated_at`), garantindo o carimbo independentemente do caminho de escrita.
+
+### 9.4 🌱 Seed e verificação
+
+O _seed_ (revisão `0008`, idempotente com `ON CONFLICT DO NOTHING`) insere 3 papéis
+(`ADMIN`/`OPERATOR`/`CLIENT`), 4 permissões base, os grants do ADMIN e o usuário **`admin`** (hash
+**bcrypt**, UUIDs fixos). ⚠️ Credencial de _bootstrap_ — **rotacionar antes de produção**.
+
+Validado contra o **PostgreSQL do Docker**: `upgrade head` cria **16 tabelas** (15 + `alembic_version`
+em `0008`); os cenários de CHECK/unicidade/FK (CASCADE e RESTRICT) e o trigger de `updated_at` se
+comportam como esperado; e o _round-trip_ `downgrade base` → `upgrade head` volta ao schema completo
+sem erros de FK. Gates limpos: `ruff` / `black` / `mypy` (em `src` e `alembic`).
+
+> 🪟 **Nota Windows/Docker Desktop:** conexões do _host_ ao Postgres do container costumam falhar no
+> _port-proxy_. Nesses casos, aplique as migrações gerando o SQL **offline** e passando-o ao `psql`
+> dentro do container:
+> `poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
+
+---
+
+## 🚀 10. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -405,7 +487,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 10. Referências
+## 📚 11. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

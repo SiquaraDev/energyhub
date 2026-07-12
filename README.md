@@ -52,12 +52,13 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0, 1, 2 e 3 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 4 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o _scaffolding_ (**FastAPI + Poetry + PostgreSQL**) e o esqueleto
 > de **Clean Architecture com classes-base** já existem, o **primeiro teste de regressão** está
 > presente e o **CORS** está configurado. O **modelo de domínio DDD** (entidades, _value objects_,
-> enums e agregados) já está implementado como **domínio puro**. **Próxima: Fase 4** (schema do banco
-> e migrações Alembic). Consulte o
+> enums e agregados) está implementado como **domínio puro** e o **schema PostgreSQL** já é
+> versionado por **migrações Alembic** (15 tabelas, índices, _constraints_, _triggers_ `updated_at`
+> e _seed_ do admin). **Próxima: Fase 5** (persistência: ORM & repositórios). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -285,12 +286,19 @@ curl http://localhost:8000/           # {"message": "EnergyHub API"}
 curl http://localhost:8000/health     # {"status": "healthy"}
 ```
 
-### 4. Migrações do banco _(a partir da Fase 4)_
+### 4. Migrações do banco _(Fase 4 ✅)_
 
 ```bash
-poetry run alembic upgrade head       # aplica todas as migrações
-poetry run alembic downgrade base     # reverte
+cd energyhub
+poetry run alembic upgrade head       # aplica as 8 migrações (15 tabelas + índices + constraints + seed)
+poetry run alembic current            # revisão atual (head = 0008)
+poetry run alembic downgrade base     # reverte tudo
 ```
+
+O _seed_ cria um usuário **`admin`** (papel `ADMIN`) com senha de _bootstrap_ **`ChangeMe123!`** —
+**rotacione antes de qualquer uso real**. No Windows + Docker Desktop, se o driver não conectar do
+host, aplique o SQL dentro do container:
+`poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
 
 ### 5. Qualidade de código
 

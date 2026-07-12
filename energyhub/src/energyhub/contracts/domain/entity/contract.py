@@ -37,14 +37,14 @@ class Contract(BaseEntity):
         super().__post_init__()
         if not self.contract_number or not self.contract_number.strip():
             raise ValidationException("contract_number não pode ser vazio")
-        if self.end_date < self.start_date:
-            raise ValidationException("end_date não pode ser anterior a start_date")
-        if self.energy_amount < Decimal(0):
-            raise ValidationException("energy_amount não pode ser negativo")
-        if self.unit_price < Decimal(0):
-            raise ValidationException("unit_price não pode ser negativo")
-        if self.total_value < Decimal(0):
-            raise ValidationException("total_value não pode ser negativo")
+        if self.end_date <= self.start_date:
+            raise ValidationException("end_date deve ser posterior a start_date")
+        if self.energy_amount <= Decimal(0):
+            raise ValidationException("energy_amount deve ser positivo")
+        if self.unit_price <= Decimal(0):
+            raise ValidationException("unit_price deve ser positivo")
+        if self.total_value <= Decimal(0):
+            raise ValidationException("total_value deve ser positivo")
 
     def approve(self) -> None:
         """Aprova o contrato (exige status PENDING_APPROVAL)."""
