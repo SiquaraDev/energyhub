@@ -18,7 +18,9 @@ from energyhub.auth.infrastructure.security.user_details import UserDetails
 from energyhub.shared.infrastructure.persistence.database import get_session
 
 # auto_error=False: tratamos nós mesmos a ausência de credenciais (→ 401, não 403).
-_bearer_scheme = HTTPBearer(auto_error=False)
+# scheme_name/bearerFormat: alinham o esquema de segurança do OpenAPI com o `bearerAuth` (JWT)
+# documentado no `custom_openapi()` (Fase 8) — mesmo nome nas operações e em securitySchemes.
+_bearer_scheme = HTTPBearer(scheme_name="bearerAuth", bearerFormat="JWT", auto_error=False)
 
 _UNAUTHORIZED = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,

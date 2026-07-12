@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–7** (`0.0.0` → `0.7.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.8.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–8** (`0.0.0` → `0.8.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.9.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,13 +24,14 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **52 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **58 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
 - **Camada de persistência (Fase 5):** engine async + `get_session()`, **mapeamento imperativo** das 13 entidades (domínio segue puro), `SQLAlchemyRepository[T, ID]` + 13 repositórios concretos, filtros/DTOs de filtro e paginação (`PageRequest`/`PageResponse`), com testes de integração contra o Postgres do Docker.
 - **API REST (Fase 6):** camadas de aplicação e apresentação — DTOs/mappers/services/use-cases/exceções e **10 routers (25 endpoints)** sob `/api/v1/`, auto-documentados em `/docs`; handler de exceções domínio→HTTP; `auth` com M2M e hash bcrypt.
 - **Segurança JWT/RBAC (Fase 7):** login (`POST /api/v1/auth/login`) + `JwtService` (HS256), `get_current_user`/`UserDetails` e guards `require_permission`/`require_role`; **10 routers protegidos** (54 guards por endpoint), catálogo de permissões (`shared/constant/permissions.py`) e migração `0009` que semeia **38 permissões** e concede todas ao `ADMIN`. Sem token → 401; sem permissão → 403.
+- **Documentação da API (Fase 8):** OpenAPI curado (`custom_openapi()` com contato/licença, esquema `bearerAuth` JWT, 12 tags), endpoints e DTOs documentados com exemplos, erros padronizados (`ErrorResponse`/`ValidationErrorResponse` + `error_code`) e guias `docs/API_ERRORS.md` / `docs/API_EXAMPLES.md`.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -168,17 +169,26 @@ _Read-cache_ Redis com invalidação explícita na escrita.
 
 ---
 
-## [0.8.0] — 🔮 Planejado · _Fase 8 · Documentação da API_
+## [0.8.0] — 2026-07-12 · ✅ Lançado · _Fase 8 · Documentação da API_
 
-API auto-descritiva com contrato OpenAPI curado e erros padronizados.
+API auto-descritiva com contrato OpenAPI curado e erros padronizados (sobre a API/segurança das Fases 6–7).
 
 ### Adicionado
-- OpenAPI customizado (`custom_openapi()`) com título/descrição/versão, metadados de contato/licença e _security scheme_ global `bearerAuth`; `/docs`, `/redoc` e `/openapi.json` expostos.
-- Documentação por endpoint (summary, description, respostas por status) e agrupamento por _tags_.
-- DTOs Pydantic enriquecidos com descrições, _constraints_ e exemplos.
-- Esquemas de erro padronizados (`ErrorResponse`, `ValidationErrorResponse`/`FieldError`).
-- Atributo `error_code` nas exceções de domínio e catálogo `docs/API_ERRORS.md`.
-- Guia `docs/API_EXAMPLES.md` com exemplos `curl` dos fluxos principais.
+- OpenAPI customizado (`custom_openapi()`, cacheado) com título/descrição/versão, metadados de contato/licença e _security scheme_ global `bearerAuth` (HTTP/bearer/JWT); `/docs`, `/redoc` e `/openapi.json` expostos. Rotas públicas (`login`, `/`, `/health`) têm a segurança global neutralizada.
+- Documentação por endpoint nos **11 routers**: `summary`, `description` e `responses` por status (compostos de blocos reutilizáveis em `shared/presentation/response/openapi_responses.py`), agrupados em **12 tags** com descrições.
+- **30 DTOs** enriquecidos com descrições, exemplos sintéticos e _constraints_ leves (`min_length`/`max_length`/`gt`) que espelham a validação de domínio.
+- Esquemas de erro padronizados: `ErrorResponse` (com `error_code`) e `ValidationErrorResponse`/`FieldError`, ambos documentados no OpenAPI.
+- Atributo `error_code` (`ClassVar`) nas **23 exceções** de domínio + catálogo `docs/API_ERRORS.md` (status HTTP e códigos por módulo).
+- Guia `docs/API_EXAMPLES.md` com exemplos `curl` dos fluxos principais (login → CRUD de clientes) com o cabeçalho `Authorization: Bearer`.
+
+### Alterado
+- `ErrorResponse` migrado de _dataclass_ para **Pydantic** (documentado no OpenAPI) e handlers alinhados a emitir os modelos padronizados: `RequestValidationError` → **400** `ValidationErrorResponse` (um item por campo), domínio → 404/409/422 `ErrorResponse`, credenciais inválidas → 401, não-tratado → **500**.
+- O esquema de segurança do `HTTPBearer` foi nomeado **`bearerAuth`** (com `bearerFormat=JWT`) para unificar com o documento OpenAPI.
+- Versão da aplicação/OpenAPI → **`0.8.0`** (SemVer do projeto; o plano sugeria `1.0.0`, ajustado para consistência — `1.0.0` fica reservado à Fase 17).
+
+### Notas
+- Sem `EmailStr` (o pacote `email-validator` não está instalado): campos de e-mail seguem `str` com o `@field_validator` existente.
+- CNPJ inválido é rejeitado na camada de _schema_ (Pydantic `@field_validator`) → **400** `ValidationErrorResponse`, não 422.
 
 ---
 

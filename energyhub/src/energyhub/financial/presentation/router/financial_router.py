@@ -32,6 +32,12 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    CONFLICT,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -58,7 +64,7 @@ class FinancialRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/invoices",
-            tags=["financial"],
+            tags=["Financial"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -72,6 +78,7 @@ class FinancialRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma fatura",
             description="Cria uma fatura. Rejeita número de fatura duplicado.",
+            responses={**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_CREATE))],
         )
         async def create(
@@ -84,6 +91,8 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             response_model=InvoiceResponseDTO,
             summary="Busca uma fatura por id",
+            description="Retorna uma fatura pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def find_by_id(
@@ -96,6 +105,8 @@ class FinancialRouter(BaseRouter):
             "",
             response_model=PageResponse[InvoiceResponseDTO],
             summary="Lista faturas (paginado)",
+            description="Lista as faturas de forma paginada e ordenável.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def find_all(
@@ -115,6 +126,8 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             response_model=InvoiceResponseDTO,
             summary="Atualiza uma fatura",
+            description="Atualiza os dados de uma fatura existente.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_UPDATE))],
         )
         async def update(
@@ -128,6 +141,8 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove uma fatura",
+            description="Exclui uma fatura pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_DELETE))],
         )
         async def delete(
@@ -141,6 +156,8 @@ class FinancialRouter(BaseRouter):
             response_model=PaymentResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Registra um pagamento para a fatura",
+            description="Registra um pagamento vinculado a uma fatura existente.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_UPDATE))],
         )
         async def add_payment(
@@ -154,6 +171,8 @@ class FinancialRouter(BaseRouter):
             "/{invoice_id}/payments",
             response_model=list[PaymentResponseDTO],
             summary="Lista os pagamentos da fatura",
+            description="Lista todos os pagamentos vinculados a uma fatura.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(INVOICE_READ))],
         )
         async def list_payments(

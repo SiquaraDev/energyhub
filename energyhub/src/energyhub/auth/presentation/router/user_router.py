@@ -29,6 +29,12 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    CONFLICT,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -50,7 +56,7 @@ class UserRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/users",
-            tags=["auth"],
+            tags=["Users"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -65,6 +71,7 @@ class UserRouter(BaseRouter):
             summary="Cria um usuário",
             description="Cria um usuário (senha é hasheada; papéis por id). Rejeita duplicados.",
             dependencies=[Depends(require_permission(USER_CREATE))],
+            responses={**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS},
         )
         async def create(
             dto: UserRequestDTO,
@@ -76,7 +83,9 @@ class UserRouter(BaseRouter):
             "/{user_id}",
             response_model=UserResponseDTO,
             summary="Busca um usuário por id",
+            description="Retorna um usuário pelo seu identificador único.",
             dependencies=[Depends(require_permission(USER_READ))],
+            responses={**NOT_FOUND, **AUTH_ERRORS},
         )
         async def find_by_id(
             user_id: UUID,
@@ -88,7 +97,9 @@ class UserRouter(BaseRouter):
             "",
             response_model=PageResponse[UserResponseDTO],
             summary="Lista usuários (paginado)",
+            description="Lista os usuários de forma paginada e ordenável.",
             dependencies=[Depends(require_permission(USER_READ))],
+            responses={**AUTH_ERRORS},
         )
         async def find_all(
             service: UserService = Depends(get_user_service),
@@ -107,7 +118,9 @@ class UserRouter(BaseRouter):
             "/{user_id}",
             response_model=UserResponseDTO,
             summary="Atualiza um usuário",
+            description="Atualiza os dados de um usuário existente pelo seu id.",
             dependencies=[Depends(require_permission(USER_UPDATE))],
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
         )
         async def update(
             user_id: UUID,
@@ -120,7 +133,9 @@ class UserRouter(BaseRouter):
             "/{user_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um usuário",
+            description="Remove um usuário existente pelo seu id.",
             dependencies=[Depends(require_permission(USER_DELETE))],
+            responses={**NOT_FOUND, **AUTH_ERRORS},
         )
         async def delete(
             user_id: UUID,

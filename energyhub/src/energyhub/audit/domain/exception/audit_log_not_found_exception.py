@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from energyhub.shared.domain.exception.resource_not_found_exception import (
     ResourceNotFoundException,
 )
@@ -9,3 +11,5 @@ from energyhub.shared.domain.exception.resource_not_found_exception import (
 
 class AuditLogNotFoundException(ResourceNotFoundException):
     """Lançada quando um log de auditoria solicitado não existe (→ HTTP 404)."""
+
+    error_code: ClassVar[str] = "AUDIT_LOG_NOT_FOUND"

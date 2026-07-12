@@ -9,7 +9,6 @@ específico na MRO da exceção, registrar este handler garante 401 no login sem
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import Request
@@ -31,9 +30,10 @@ async def invalid_credentials_exception_handler(
         error="Unauthorized",
         message=exc.message,
         path=request.url.path,
+        error_code=exc.error_code,
     )
     return JSONResponse(
         status_code=401,
-        content=asdict(body),
+        content=body.model_dump(),
         headers={"WWW-Authenticate": "Bearer"},
     )

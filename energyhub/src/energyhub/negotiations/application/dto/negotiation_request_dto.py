@@ -12,7 +12,13 @@ from energyhub.negotiations.domain.entity.negotiation_status import NegotiationS
 class NegotiationRequestDTO(BaseModel):
     """Dados de entrada para criar/atualizar uma negociação."""
 
-    contract_id: UUID = Field(..., description="Id do contrato ao qual a negociação pertence")
+    contract_id: UUID = Field(
+        ...,
+        description="Id do contrato ao qual a negociação pertence",
+        examples=["0b1e5b2e-6c3a-4e2a-9f1a-2b3c4d5e6f70"],
+    )
     status: NegotiationStatus = Field(
-        NegotiationStatus.DRAFT, description="Status da negociação (DRAFT, IN_PROGRESS, ...)"
+        NegotiationStatus.DRAFT,
+        description="Status da negociação (DRAFT, IN_PROGRESS, ...)",
+        examples=["DRAFT"],
     )

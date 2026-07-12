@@ -16,7 +16,25 @@ class EnergyTransactionRequestDTO(BaseModel):
     `negotiation_id` vem do path (`POST /negotiations/{negotiation_id}/transactions`), não do corpo.
     """
 
-    amount: Decimal = Field(..., description="Quantidade de energia negociada")
-    price: Decimal = Field(..., description="Preço da transação")
-    type: TransactionType = Field(..., description="Tipo da transação (BUY, SELL)")
-    transaction_date: datetime = Field(..., description="Data/hora da transação")
+    amount: Decimal = Field(
+        ...,
+        gt=0,
+        description="Quantidade de energia negociada (em MWh)",
+        examples=["1500.00"],
+    )
+    price: Decimal = Field(
+        ...,
+        gt=0,
+        description="Preço da transação",
+        examples=["1500.00"],
+    )
+    type: TransactionType = Field(
+        ...,
+        description="Tipo da transação (BUY, SELL)",
+        examples=["BUY"],
+    )
+    transaction_date: datetime = Field(
+        ...,
+        description="Data/hora da transação",
+        examples=["2026-07-12T14:30:00Z"],
+    )

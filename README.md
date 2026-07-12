@@ -52,15 +52,16 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 7 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 8 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
-> no ar (**10 routers / 25 endpoints** `/api/v1/...`, CRUD + listagem paginada + sub-recursos), e a
-> **segurança** já protege a API: **login JWT** (`POST /api/v1/auth/login`), `get_current_user`,
-> **RBAC por permissão** (`require_permission`/`require_role`) — endpoints exigem token (**401**) e a
-> permissão correta (**403**); **54 operações protegidas**, só o login/`/`/`/health` são públicos.
-> **Próxima: Fase 8** (documentação da API e erros padronizados). Consulte o
+> no ar (**10 routers / 25 endpoints** `/api/v1/...`, CRUD + listagem paginada + sub-recursos), a
+> **segurança** protege a API (**login JWT**, `get_current_user`, **RBAC por permissão** — **401**/**403**),
+> e a API é **auto-descritiva**: **OpenAPI curado** (metadados, esquema `bearerAuth`, tags), endpoints
+> e DTOs documentados com exemplos, **erros padronizados** (`ErrorResponse`/`ValidationErrorResponse`
+> + `error_code`) e guias [`docs/API_ERRORS.md`](docs/API_ERRORS.md)/[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md).
+> **Próxima: Fase 9** (camada de cache com Redis). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -321,14 +322,17 @@ Com a aplicação em execução, a documentação interativa fica disponível em
 - **ReDoc** — http://localhost:8000/redoc
 - **OpenAPI JSON** — http://localhost:8000/openapi.json
 
-A partir da **Fase 8**, a documentação será curada (metadados, exemplos e _security scheme_ JWT),
-com um **catálogo de erros** ([`docs/API_ERRORS.md`](docs/API_ERRORS.md)) e
-**exemplos de uso** ([`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)).
+Desde a **Fase 8 ✅**, a documentação é **curada**: metadados (contato/licença), _security scheme_
+`bearerAuth` (JWT), agrupamento por **tags**, endpoints com `summary`/`description`/`responses` e
+DTOs com descrições e exemplos. Os erros são **padronizados** (`ErrorResponse` /
+`ValidationErrorResponse` com `error_code`), catalogados em
+**[`docs/API_ERRORS.md`](docs/API_ERRORS.md)**, e há exemplos `curl` em
+**[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)**.
 
 **Autenticação _(Fase 7 ✅)_:** faça login em `POST /api/v1/auth/login` (ex.: `admin` /
 `ChangeMe123!`) e envie o token retornado como `Authorization: Bearer <token>` nas rotas protegidas.
 Sem token → **401**; token válido sem a permissão exigida pelo endpoint → **403**. O botão
-**Authorize** do Swagger (`/docs`) usa o esquema `HTTPBearer`.
+**Authorize** do Swagger (`/docs`) usa o esquema `bearerAuth`.
 
 ---
 

@@ -28,6 +28,11 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -49,7 +54,7 @@ class ReportRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/reports",
-            tags=["reports"],
+            tags=["Reports"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -63,6 +68,7 @@ class ReportRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria um relatório",
             description="Cria um relatório sob demanda (status inicial PENDING).",
+            responses={**BAD_REQUEST, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(REPORT_CREATE))],
         )
         async def create(
@@ -75,6 +81,8 @@ class ReportRouter(BaseRouter):
             "/{report_id}",
             response_model=ReportResponseDTO,
             summary="Busca um relatório por id",
+            description="Retorna os dados de um relatório específico pelo seu id.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(REPORT_READ))],
         )
         async def find_by_id(
@@ -87,6 +95,8 @@ class ReportRouter(BaseRouter):
             "",
             response_model=PageResponse[ReportResponseDTO],
             summary="Lista relatórios (paginado)",
+            description="Lista os relatórios de forma paginada e ordenável.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(REPORT_READ))],
         )
         async def find_all(
@@ -106,6 +116,8 @@ class ReportRouter(BaseRouter):
             "/{report_id}",
             response_model=ReportResponseDTO,
             summary="Atualiza um relatório",
+            description="Atualiza os dados de um relatório existente pelo seu id.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(REPORT_UPDATE))],
         )
         async def update(
@@ -119,6 +131,8 @@ class ReportRouter(BaseRouter):
             "/{report_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um relatório",
+            description="Remove um relatório existente pelo seu id.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(REPORT_DELETE))],
         )
         async def delete(

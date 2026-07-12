@@ -28,6 +28,12 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    CONFLICT,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -42,7 +48,7 @@ class PermissionRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/permissions",
-            tags=["auth"],
+            tags=["Permissions"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -55,7 +61,9 @@ class PermissionRouter(BaseRouter):
             response_model=PermissionResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma permissão",
+            description="Cria uma permissão com nome único. Rejeita nomes duplicados.",
             dependencies=[Depends(require_permission(PERMISSION_CREATE))],
+            responses={**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS},
         )
         async def create(
             dto: PermissionRequestDTO,
@@ -67,7 +75,9 @@ class PermissionRouter(BaseRouter):
             "/{permission_id}",
             response_model=PermissionResponseDTO,
             summary="Busca uma permissão por id",
+            description="Retorna uma permissão pelo seu identificador único.",
             dependencies=[Depends(require_permission(PERMISSION_READ))],
+            responses={**NOT_FOUND, **AUTH_ERRORS},
         )
         async def find_by_id(
             permission_id: UUID,
@@ -79,7 +89,9 @@ class PermissionRouter(BaseRouter):
             "",
             response_model=PageResponse[PermissionResponseDTO],
             summary="Lista permissões (paginado)",
+            description="Lista as permissões de forma paginada e ordenável.",
             dependencies=[Depends(require_permission(PERMISSION_READ))],
+            responses={**AUTH_ERRORS},
         )
         async def find_all(
             service: PermissionService = Depends(get_permission_service),
@@ -98,7 +110,9 @@ class PermissionRouter(BaseRouter):
             "/{permission_id}",
             response_model=PermissionResponseDTO,
             summary="Atualiza uma permissão",
+            description="Atualiza os dados de uma permissão existente pelo seu id.",
             dependencies=[Depends(require_permission(PERMISSION_UPDATE))],
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
         )
         async def update(
             permission_id: UUID,
@@ -111,7 +125,9 @@ class PermissionRouter(BaseRouter):
             "/{permission_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove uma permissão",
+            description="Remove uma permissão existente pelo seu id.",
             dependencies=[Depends(require_permission(PERMISSION_DELETE))],
+            responses={**NOT_FOUND, **AUTH_ERRORS},
         )
         async def delete(
             permission_id: UUID,

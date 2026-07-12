@@ -10,8 +10,19 @@ from energyhub.shared.application.validation.validators import validate_non_empt
 class PermissionRequestDTO(BaseModel):
     """Dados de entrada para criar/atualizar uma permissão."""
 
-    name: str = Field(..., description="Nome da permissão (ex.: USER_CREATE)")
-    description: str | None = Field(None, description="Descrição da permissão")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Nome da permissão (ex.: USER_CREATE)",
+        examples=["USER_CREATE"],
+    )
+    description: str | None = Field(
+        None,
+        max_length=255,
+        description="Descrição da permissão",
+        examples=["Permite criar usuários"],
+    )
 
     @field_validator("name")
     @classmethod

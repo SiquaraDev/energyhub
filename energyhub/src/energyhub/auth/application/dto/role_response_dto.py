@@ -11,6 +11,10 @@ from energyhub.shared.application.dto.base_dto import BaseDTO
 class RoleResponseDTO(BaseDTO):
     """Representação de saída de um papel, com as permissões aninhadas."""
 
-    name: str
-    description: str | None = None
-    permissions: list[PermissionResponseDTO] = Field(default_factory=list)
+    name: str = Field(..., description="Nome do papel", examples=["ADMIN"])
+    description: str | None = Field(
+        None, description="Descrição do papel", examples=["Administrador do sistema"]
+    )
+    permissions: list[PermissionResponseDTO] = Field(
+        default_factory=list, description="Permissões atribuídas ao papel"
+    )

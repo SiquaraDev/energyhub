@@ -32,6 +32,12 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    CONFLICT,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -58,7 +64,7 @@ class ClientRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/clients",
-            tags=["clients"],
+            tags=["Clients"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -72,6 +78,7 @@ class ClientRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria um cliente",
             description="Cria um cliente (com contatos opcionais). Rejeita CNPJ duplicado.",
+            responses={**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_CREATE))],
         )
         async def create(
@@ -84,6 +91,8 @@ class ClientRouter(BaseRouter):
             "/{client_id}",
             response_model=ClientResponseDTO,
             summary="Busca um cliente por id",
+            description="Retorna um cliente pelo seu identificador único.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_READ))],
         )
         async def find_by_id(
@@ -96,6 +105,8 @@ class ClientRouter(BaseRouter):
             "",
             response_model=PageResponse[ClientResponseDTO],
             summary="Lista clientes (paginado)",
+            description="Lista os clientes de forma paginada e ordenável.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_READ))],
         )
         async def find_all(
@@ -115,6 +126,8 @@ class ClientRouter(BaseRouter):
             "/{client_id}",
             response_model=ClientResponseDTO,
             summary="Atualiza um cliente",
+            description="Atualiza os dados de um cliente existente.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_UPDATE))],
         )
         async def update(
@@ -128,6 +141,8 @@ class ClientRouter(BaseRouter):
             "/{client_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um cliente",
+            description="Remove um cliente pelo seu identificador único.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_DELETE))],
         )
         async def delete(
@@ -141,6 +156,8 @@ class ClientRouter(BaseRouter):
             response_model=ContactResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Adiciona um contato ao cliente",
+            description="Cria um novo contato vinculado ao cliente informado.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_UPDATE))],
         )
         async def add_contact(
@@ -154,6 +171,8 @@ class ClientRouter(BaseRouter):
             "/{client_id}/contacts",
             response_model=list[ContactResponseDTO],
             summary="Lista os contatos do cliente",
+            description="Retorna todos os contatos vinculados ao cliente informado.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CLIENT_READ))],
         )
         async def list_contacts(

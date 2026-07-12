@@ -28,6 +28,12 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    CONFLICT,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -49,7 +55,7 @@ class ContractRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/contracts",
-            tags=["contracts"],
+            tags=["Contracts"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -63,6 +69,7 @@ class ContractRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Cria um contrato",
             description="Cria um contrato de energia. Rejeita número de contrato duplicado.",
+            responses={**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CONTRACT_CREATE))],
         )
         async def create(
@@ -75,6 +82,8 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             response_model=ContractResponseDTO,
             summary="Busca um contrato por id",
+            description="Retorna os dados de um contrato pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CONTRACT_READ))],
         )
         async def find_by_id(
@@ -87,6 +96,8 @@ class ContractRouter(BaseRouter):
             "",
             response_model=PageResponse[ContractResponseDTO],
             summary="Lista contratos (paginado)",
+            description="Retorna a lista paginada de contratos cadastrados.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(CONTRACT_READ))],
         )
         async def find_all(
@@ -106,6 +117,8 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             response_model=ContractResponseDTO,
             summary="Atualiza um contrato",
+            description="Atualiza os dados de um contrato existente pelo seu identificador.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CONTRACT_UPDATE))],
         )
         async def update(
@@ -119,6 +132,8 @@ class ContractRouter(BaseRouter):
             "/{contract_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove um contrato",
+            description="Remove um contrato existente pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(CONTRACT_DELETE))],
         )
         async def delete(

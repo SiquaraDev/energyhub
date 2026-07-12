@@ -8,5 +8,17 @@ from pydantic import BaseModel, Field
 class LoginRequestDTO(BaseModel):
     """Credenciais enviadas ao endpoint de login."""
 
-    username: str = Field(..., min_length=1, description="Nome de usuário")
-    password: str = Field(..., min_length=1, description="Senha em texto puro")
+    username: str = Field(
+        ...,
+        min_length=1,
+        max_length=150,
+        description="Nome de usuário",
+        examples=["operador01"],
+    )
+    password: str = Field(
+        ...,
+        min_length=1,
+        max_length=72,
+        description="Senha em texto puro",
+        examples=["SenhaForte123!"],
+    )

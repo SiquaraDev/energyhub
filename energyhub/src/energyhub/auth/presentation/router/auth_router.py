@@ -11,6 +11,7 @@ from energyhub.auth.application.service.authentication_service import Authentica
 from energyhub.auth.infrastructure.persistence.user_repository import UserRepository
 from energyhub.shared.constant.application_constants import API_V1_PREFIX
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.presentation.response.openapi_responses import BAD_REQUEST, UNAUTHORIZED
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -25,7 +26,7 @@ class AuthRouter(BaseRouter):
     """Endpoints de autenticação. Este grupo NÃO exige token (login é público)."""
 
     def __init__(self) -> None:
-        super().__init__(prefix=f"{API_V1_PREFIX}/auth", tags=["auth"])
+        super().__init__(prefix=f"{API_V1_PREFIX}/auth", tags=["Authentication"])
         self._register_routes()
 
     def _register_routes(self) -> None:
@@ -39,6 +40,7 @@ class AuthRouter(BaseRouter):
                 "Recebe `username`/`password`, valida as credenciais e devolve um token de "
                 "acesso `bearer` com o perfil do usuário. Credenciais inválidas retornam 401."
             ),
+            responses={**BAD_REQUEST, **UNAUTHORIZED},
         )
         async def login(
             dto: LoginRequestDTO,

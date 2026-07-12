@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 7
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.7.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 8 — Documentação da API e Erros
-> Padronizados**. As **Fases 8–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 8
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.8.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 9 — Camada de Cache com Redis**.
+> As **Fases 9–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -201,7 +201,7 @@ endpoint), catálogo canônico em `shared/constant/permissions.py`; login/`/`/`/
 operações com `security`), e **E2E** contra o Postgres do Docker (login **200**, sem token **401**, sem
 permissão **403**, com permissão **200**).
 
-### 📋 Fase 8 — Documentação da API e Erros Padronizados · `0.8.0`
+### ✅ Fase 8 — Documentação da API e Erros Padronizados · `0.8.0` _(concluída)_
 **Objetivo:** tornar a API auto-descritiva com contrato OpenAPI curado e respostas de erro consistentes.
 
 **Entregáveis:**
@@ -210,6 +210,18 @@ permissão **403**, com permissão **200**).
 - `error-response-schemas` — `ErrorResponse` / `ValidationErrorResponse`
 - `error-catalog` — [`docs/API_ERRORS.md`](./API_ERRORS.md) + `error_code` nas exceções
 - `api-usage-examples` — [`docs/API_EXAMPLES.md`](./API_EXAMPLES.md) com exemplos `curl`
+
+_Como implementado:_ `custom_openapi()` (cacheado) injeta contato/licença e o esquema **`bearerAuth`**
+(HTTP/bearer/JWT) com requisito de segurança global — rotas públicas (`login`, `/`, `/health`)
+neutralizadas; **12 tags** com descrições. Os **11 routers** ganharam `summary`/`description`/
+`responses` por status (compostos de blocos reutilizáveis em `shared/presentation/response/openapi_responses.py`),
+e os **30 DTOs**, descrições + exemplos sintéticos + constraints leves (sem `EmailStr` — `email-validator`
+ausente). Erros padronizados: `ErrorResponse` (Pydantic, com `error_code`) e `ValidationErrorResponse`/
+`FieldError`; handlers alinhados — `RequestValidationError`→**400**, domínio→404/409/422, credenciais→401,
+não-tratado→**500**. **23 exceções** ganharam `error_code`, catalogado em `docs/API_ERRORS.md`; guia
+`curl` em `docs/API_EXAMPLES.md`. A versão da API é **`0.8.0`** (SemVer do projeto, não o `1.0.0` literal
+do plano). Verificado: **ruff/black/mypy (397) limpos** + **E2E** (404 `ErrorResponse`, 400
+`ValidationErrorResponse`, 409 `CLIENT_ALREADY_EXISTS`, esquema `bearerAuth`) contra o Postgres do Docker.
 
 ---
 

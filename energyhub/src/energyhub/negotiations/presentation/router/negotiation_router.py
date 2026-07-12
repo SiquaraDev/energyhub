@@ -44,6 +44,11 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -72,7 +77,7 @@ class NegotiationRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/negotiations",
-            tags=["negotiations"],
+            tags=["Negotiations"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -85,6 +90,8 @@ class NegotiationRouter(BaseRouter):
             response_model=NegotiationResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma negociação",
+            description="Cria uma nova negociação vinculada a um contrato.",
+            responses={**BAD_REQUEST, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_CREATE))],
         )
         async def create(
@@ -97,6 +104,8 @@ class NegotiationRouter(BaseRouter):
             "/{negotiation_id}",
             response_model=NegotiationResponseDTO,
             summary="Busca uma negociação por id",
+            description="Retorna os dados de uma negociação pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_READ))],
         )
         async def find_by_id(
@@ -109,6 +118,8 @@ class NegotiationRouter(BaseRouter):
             "",
             response_model=PageResponse[NegotiationResponseDTO],
             summary="Lista negociações (paginado)",
+            description="Retorna uma página de negociações conforme os parâmetros de paginação.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_READ))],
         )
         async def find_all(
@@ -128,6 +139,8 @@ class NegotiationRouter(BaseRouter):
             "/{negotiation_id}",
             response_model=NegotiationResponseDTO,
             summary="Atualiza o status de uma negociação",
+            description="Atualiza os dados/status de uma negociação existente.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_UPDATE))],
         )
         async def update(
@@ -141,6 +154,8 @@ class NegotiationRouter(BaseRouter):
             "/{negotiation_id}",
             status_code=status.HTTP_204_NO_CONTENT,
             summary="Remove uma negociação",
+            description="Remove uma negociação existente pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_DELETE))],
         )
         async def delete(
@@ -154,6 +169,8 @@ class NegotiationRouter(BaseRouter):
             response_model=EnergyTransactionResponseDTO,
             status_code=status.HTTP_201_CREATED,
             summary="Cria uma transação de energia na negociação",
+            description="Registra uma nova transação de energia na negociação informada.",
+            responses={**BAD_REQUEST, **NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_UPDATE))],
         )
         async def create_transaction(
@@ -167,6 +184,8 @@ class NegotiationRouter(BaseRouter):
             "/{negotiation_id}/transactions",
             response_model=list[EnergyTransactionResponseDTO],
             summary="Lista as transações de energia da negociação",
+            description="Retorna todas as transações de energia da negociação informada.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(NEGOTIATION_READ))],
         )
         async def list_transactions(

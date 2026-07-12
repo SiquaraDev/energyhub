@@ -26,6 +26,11 @@ from energyhub.shared.constant.permissions import (
 )
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
+from energyhub.shared.presentation.response.openapi_responses import (
+    AUTH_ERRORS,
+    BAD_REQUEST,
+    NOT_FOUND,
+)
 from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
@@ -47,7 +52,7 @@ class AuditLogRouter(BaseRouter):
     def __init__(self) -> None:
         super().__init__(
             prefix=f"{API_V1_PREFIX}/audit-logs",
-            tags=["audit"],
+            tags=["Audit"],
             dependencies=[Depends(get_current_user)],
         )
         self._register_routes()
@@ -61,6 +66,7 @@ class AuditLogRouter(BaseRouter):
             status_code=status.HTTP_201_CREATED,
             summary="Registra um log de auditoria",
             description="Registra um log de auditoria (recurso append-only).",
+            responses={**BAD_REQUEST, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(AUDIT_LOG_CREATE))],
         )
         async def create(
@@ -73,6 +79,8 @@ class AuditLogRouter(BaseRouter):
             "/{audit_log_id}",
             response_model=AuditLogResponseDTO,
             summary="Busca um log de auditoria por id",
+            description="Retorna um log de auditoria pelo seu identificador.",
+            responses={**NOT_FOUND, **AUTH_ERRORS},
             dependencies=[Depends(require_permission(AUDIT_LOG_READ))],
         )
         async def find_by_id(
@@ -85,6 +93,8 @@ class AuditLogRouter(BaseRouter):
             "",
             response_model=PageResponse[AuditLogResponseDTO],
             summary="Lista logs de auditoria (paginado)",
+            description="Lista os logs de auditoria de forma paginada.",
+            responses={**AUTH_ERRORS},
             dependencies=[Depends(require_permission(AUDIT_LOG_READ))],
         )
         async def find_all(

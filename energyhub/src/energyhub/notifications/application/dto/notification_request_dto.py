@@ -13,11 +13,29 @@ from energyhub.shared.application.validation.validators import validate_non_empt
 class NotificationRequestDTO(BaseModel):
     """Dados de entrada para criar/atualizar uma notificação."""
 
-    user_id: UUID = Field(..., description="Identificador do usuário destinatário")
-    title: str = Field(..., description="Título da notificação")
-    message: str = Field(..., description="Conteúdo da notificação")
+    user_id: UUID = Field(
+        ...,
+        description="Identificador do usuário destinatário",
+        examples=["0b1e5b2e-6c3a-4e2a-9f1a-2b3c4d5e6f70"],
+    )
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Título da notificação",
+        examples=["Fatura disponível"],
+    )
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="Conteúdo da notificação",
+        examples=["Sua fatura de energia já está disponível para consulta."],
+    )
     status: NotificationStatus = Field(
-        NotificationStatus.PENDING, description="Estado do ciclo de vida da notificação"
+        NotificationStatus.PENDING,
+        description="Estado do ciclo de vida da notificação",
+        examples=["PENDING"],
     )
 
     @field_validator("title")

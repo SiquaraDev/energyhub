@@ -9,7 +9,6 @@ Registrado para a base `DomainException`, cobrindo todas as subclasses. O mapeam
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import Request
@@ -47,5 +46,6 @@ async def domain_exception_handler(request: Request, exc: DomainException) -> JS
         error=error,
         message=exc.message,
         path=request.url.path,
+        error_code=exc.error_code,
     )
-    return JSONResponse(status_code=status, content=asdict(body))
+    return JSONResponse(status_code=status, content=body.model_dump())

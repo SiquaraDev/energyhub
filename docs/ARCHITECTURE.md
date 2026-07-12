@@ -1,15 +1,16 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–7)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–8)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 7 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
-Persistência, API REST e Segurança (JWT/RBAC)** (versão `0.7.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 8 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência, API REST, Segurança (JWT/RBAC) e Documentação/Erros da API** (versão `0.8.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
 enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, a **camada de
 persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, serviços, use cases e
 routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, RBAC por permissão) da
-Fase 7, suas **assinaturas reais** e como estendê-las nas próximas fases.
+Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, suas
+**assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -628,7 +629,8 @@ usuário são específicos de auth e vivem em `auth`.
   por endpoint (mapeando CRUD → permissão). Sub-recursos reutilizam a permissão do pai; `audit-logs` é
   append-only (`AUDIT_LOG_CREATE`/`_READ`).
 - **Superfície:** **54 operações** exigem JWT + permissão; apenas `POST /api/v1/auth/login`, `/` e
-  `/health` são públicos. O esquema de segurança do OpenAPI é `HTTPBearer` (botão **Authorize** no `/docs`).
+  `/health` são públicos. O esquema de segurança do OpenAPI é `bearerAuth` (botão **Authorize** no
+  `/docs`; nomeado assim na Fase 8, ver Seção 13).
 - **Dados de grant:** a migração `0009` semeia as **38 permissões** e concede **todas** ao `ADMIN`
   (`INSERT…SELECT`, à prova de futuro). `OPERATOR`/`CLIENT` ficam sem grants até uma fase futura.
 
@@ -668,7 +670,70 @@ migração e conceda-a ao(s) papel(is) — os _guards_ passam a reconhecê-la au
 
 ---
 
-## 🚀 13. Como adicionar uma nova entidade/módulo (próximas fases)
+## 📘 13. Documentação & Erros da API (Fase 8)
+
+A **Fase 8** (versão `0.8.0`) tornou a API **auto-descritiva**: metadados OpenAPI curados, endpoints
+e DTOs documentados, e corpos de erro **padronizados** — sem alterar o comportamento das rotas de
+sucesso (apenas a forma dos erros passou a ser garantida).
+
+### 13.1 🧾 OpenAPI customizado (`main.py`)
+
+`app.openapi` é substituído por um `custom_openapi()` que constrói o schema **uma vez** (cacheado em
+`app.openapi_schema`) e injeta:
+
+- **Metadados** — `contact` e `license` em `info`, além de `title`/`description`/`version` (`0.8.0`).
+- **Segurança** — o esquema `bearerAuth` (`type: http`, `scheme: bearer`, `bearerFormat: JWT`) em
+  `components.securitySchemes` + um requisito de segurança **global** (`security: [{bearerAuth: []}]`).
+  As rotas **públicas** (`/api/v1/auth/login`, `/`, `/health`) têm `security: []` (neutralizado). O
+  `HTTPBearer` da Fase 7 foi nomeado `bearerAuth` (via `scheme_name`) para unificar com este esquema.
+- **Tags** — `openapi_tags` com **12 grupos** descritos (`Authentication`, `Users`, `Clients`, …);
+  cada router declara sua tag, agrupando as operações no Swagger UI (`/docs`) e ReDoc (`/redoc`).
+
+### 13.2 🏷️ Documentação de endpoints e DTOs
+
+- **Rotas** — cada operação declara `summary`, `description` e `responses` por status. Os blocos de
+  erro reutilizáveis vivem em `shared/presentation/response/openapi_responses.py` (`BAD_REQUEST`,
+  `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `AUTH_ERRORS`) e são compostos por rota (ex.:
+  um `POST` de criação com unicidade usa `{**BAD_REQUEST, **CONFLICT, **AUTH_ERRORS}`). Assim o que é
+  **documentado** aponta para os mesmos modelos que os handlers **emitem**.
+- **DTOs** — cada campo usa `Field(description=..., examples=[...])` e _constraints_ leves
+  (`min_length`/`max_length`/`gt`) que espelham a validação de domínio. E-mails permanecem `str` +
+  `@field_validator` (o pacote `email-validator` do `EmailStr` **não** está instalado).
+
+### 13.3 🚦 Corpos de erro padronizados
+
+Dois modelos Pydantic em `shared/presentation/response/`, documentados no OpenAPI:
+
+| Modelo | Quando | Campos |
+| :----- | :----- | :----- |
+| `ErrorResponse` | `4xx`/`5xx` gerais | `timestamp`, `status`, `error`, `message`, `path`, `error_code?` |
+| `ValidationErrorResponse` | validação de _schema_ (400) | `status`, `message`, `errors: [FieldError{field, message}]` |
+
+Handlers (registrados em `main.py`) alinhados aos modelos:
+
+| Origem | Status | Corpo |
+| :----- | :----: | :---- |
+| `RequestValidationError` (Pydantic) | **400** | `ValidationErrorResponse` (um `FieldError` por campo) |
+| `ResourceNotFoundException` | 404 | `ErrorResponse` |
+| `BusinessRuleException` (ex.: já-existe) | 409 | `ErrorResponse` |
+| `ValidationException` de domínio | 422 | `ErrorResponse` |
+| `InvalidCredentialsException` | 401 | `ErrorResponse` + `WWW-Authenticate: Bearer` |
+| Exceção não tratada | **500** | `ErrorResponse` (mensagem genérica) |
+
+> ⚠️ **400 × 422:** validações feitas por `@field_validator` do DTO (CNPJ, e-mail, não-vazio) falham
+> na camada de _schema_ → **400**; violações levantadas no domínio/serviço → **422**.
+
+### 13.4 🔑 `error_code` e catálogo
+
+`DomainException` expõe `error_code: ClassVar[str]` (default `DOMAIN_ERROR`); cada subclasse
+sobrescreve com um código estável (`CLIENT_NOT_FOUND`, `INVALID_CNPJ`, …). Os handlers ecoam o
+`error_code` no corpo, e o catálogo completo (status + código por módulo) vive em
+[`docs/API_ERRORS.md`](./API_ERRORS.md). Exemplos `curl` ponta-a-ponta em
+[`docs/API_EXAMPLES.md`](./API_EXAMPLES.md).
+
+---
+
+## 🚀 14. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -690,6 +755,9 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 5. **Presentation** — crie o router em `router/` usando/estendendo `BaseRouter`, os _schemas_ em
    `request/`/`response/`, e registre o router na app (`main.py`). **Proteja-o**: `dependencies=[Depends(get_current_user)]`
    no grupo e `Depends(require_permission(<PERM>))` por endpoint, com a permissão do catálogo (ver Seção 12).
+   **Documente-o** (Seção 13): `summary`/`description`/`responses` por rota (compondo os blocos de
+   `openapi_responses`), uma `tag` própria, `Field(description/examples)` nos DTOs e um `error_code` em
+   cada exceção nova (registrando-o em `docs/API_ERRORS.md`).
 6. **Registre o `global_exception_handler`** na app quando começar a expor endpoints de negócio,
    para respostas de erro padronizadas (`ErrorResponse`).
 7. **Testes** — adicione testes em `tests/`, seguindo `tests/test_base_entity.py` e a fixture de
@@ -700,7 +768,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 14. Referências
+## 📚 15. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.
