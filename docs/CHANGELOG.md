@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–10** (`0.0.0` → `0.10.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.11.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–11** (`0.0.0` → `0.11.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.12.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **69 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **76 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -34,6 +34,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Documentação da API (Fase 8):** OpenAPI curado (`custom_openapi()` com contato/licença, esquema `bearerAuth` JWT, 12 tags), endpoints e DTOs documentados com exemplos, erros padronizados (`ErrorResponse`/`ValidationErrorResponse` + `error_code`) e guias `docs/API_ERRORS.md` / `docs/API_EXAMPLES.md`.
 - **Cache Redis (Fase 9):** serviço `redis:7-alpine` no compose, `CacheConfig`/`CacheConstants`, `@cache` nos reads de 5 serviços (namespaces + TTLs), invalidação em create/update/delete, e router `/api/v1/cache` (`/stats`, `/clear`) protegido por `CACHE_MANAGE` (migração `0010`).
 - **Mensageria assíncrona (Fase 10):** brokers **RabbitMQ** (workflows) e **Kafka** + Zookeeper (streams) no compose; `RabbitMQConfig`/`setup_queues` (11 filas duráveis) e `KafkaConfig`/`create_topics` (4 tópicos); `EventProducer` base + `UserEventProducer`/`ClientEventProducer` (RabbitMQ) e `KafkaEventProducer`/`KafkaEventConsumer` (JSON com chave); consumidores `NotificationConsumer` e `AuditConsumer` (ack manual, `prefetch_count=1`); publicação pós-commit nos serviços (não-bloqueante) e `MessagePublishingException`.
+- **Busca full-text (Fase 11):** serviço **Elasticsearch** (single-node, healthcheck, volume) no compose + deps `elasticsearch`/`elasticsearch-dsl`; `ElasticsearchConfig` (client factory + `create_indices` idempotente); documentos `ClientDocument`/`ContractDocument` (keyword/text, analisador português, `from_entity`); repositórios de busca (index/delete/finders); `ClientSearchService` (`multi_match` com boosting + `fuzziness='AUTO'`, filtro por localização, busca avançada com `SearchFilter`/`FilterCondition` + `min_score`); router `/api/v1/search/clients` (full-text, location, advanced).
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -131,17 +132,29 @@ Visibilidade em tempo real com métricas, dashboards e alertas.
 
 ---
 
-## [0.11.0] — 🔮 Planejado · _Fase 11 · Busca (Elasticsearch)_
+## [0.11.0] — 2026-07-12 · ✅ Lançado · _Fase 11 · Busca (Elasticsearch)_
 
-Subsistema de busca _full-text_ com relevância, tolerância a erros e filtros compostos.
+Subsistema de busca _full-text_ com relevância, tolerância a erros e filtros compostos. O
+Elasticsearch é um **índice de leitura denormalizado**; o PostgreSQL segue a fonte de verdade e o
+índice é reconstruível a partir dele.
 
 ### Adicionado
-- Serviço Elasticsearch single-node (segurança desabilitada, _healthcheck_, volume) e dependências `elasticsearch` / `elasticsearch-dsl`.
-- `ElasticsearchConfig` (client factory + _bootstrap_ idempotente de índices) e _settings_ dedicadas.
-- Mapeamentos `Document` por entidade (`ClientDocument`, `ContractDocument`) com analisador Português e projeção `from_entity`.
-- Repositórios de busca (index/delete/finders) mantendo o Elasticsearch sincronizado com o PostgreSQL.
-- `ClientSearchService` com `multi_match` (boost de campos + `fuzziness='AUTO'`), filtros avançados (`SearchFilter`/`FilterCondition`) e endpoints de busca paginados.
-- Testes de performance com orçamentos de latência.
+- Serviço `elasticsearch:8.13.4` (single-node, `xpack.security.enabled=false`, heap 512m via `ES_JAVA_OPTS`, _healthcheck_ `_cluster/health`, volume `elasticsearch_data`) no `docker-compose.yml`; dependências `elasticsearch (^8.0)` e `elasticsearch-dsl (^8.0)`.
+- Settings `elasticsearch_url` / `elasticsearch_timeout` em `energyhub.config.settings`.
+- `ElasticsearchConfig` (`shared/infrastructure/search/`): `get_client()` (cliente síncrono singleton) e `create_indices(documents)` **idempotente** (cria só os índices ausentes; recebe as classes de `Document` do chamador, preservando a regra de dependência).
+- Analisador **português** customizado (`portuguese_analyzer`) e documentos `ClientDocument` (índice `clients`) / `ContractDocument` (índice `contracts`) — `Keyword` para filtro exato, `Text` analisado para os nomes, `Date`/`Boolean`/`Double` — com `from_entity` (enums → string, `Decimal` → `float`, id → `meta.id`).
+- Repositórios de busca `ClientSearchRepository` / `ContractSearchRepository` (`save`/`delete` + _finders_ estruturados `term`/`match`/`bool`), mantendo o índice sincronizado com o PostgreSQL.
+- `ClientSearchService`: `search` (`multi_match` com boosting `corporate_name^2`/`trade_name^1.5`/`cnpj` + `fuzziness='AUTO'`, paginado via `PageRequest`→`PageResponse` com `hits.total.value`), `filter_by_location` e `advanced_search` (query `bool` composta + `min_score`); `ClientMapper.document_to_response_dto`.
+- DTOs `SearchFilter` / `FilterCondition` em `shared/application/dto/` (`eq` → term, `gt`/`lt`/`gte`/`lte` → range).
+- Router `ClientSearchRouter` sob `/api/v1/search/clients` (GET `/` full-text, GET `/location`, POST `/advanced`), protegido por `CLIENT_READ`; endpoints síncronos (o FastAPI os roda em _threadpool_). Índices criados no **lifespan** da app.
+- Testes de busca (`tests/test_search.py`, 6 casos) com **orçamento de latência** (< 1s): full-text/fuzziness, location, paginação, term+range e `min_score`.
+
+### Alterado
+- _Override_ de mypy para `elasticsearch_dsl.*` (sem `py.typed`); o cliente `elasticsearch` é tipado.
+
+### Notas
+- Índice **secundário**: sem replicação real-time garantida nesta fase (a API de indexação `save`/`delete` existe; a sincronização por eventos sobre a mensageria da Fase 10 fica para depois). Segurança do cluster desabilitada — **apenas dev/local**.
+- No Windows/Docker Desktop, o Elasticsearch **conecta do host** (como Redis/RabbitMQ/Kafka; só o Postgres falha); a suíte de busca roda direto do host.
 
 ---
 

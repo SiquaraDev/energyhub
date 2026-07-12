@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_group_id: str = "energyhub"
 
+    # Busca — Fase 11. Elasticsearch (índice de leitura; o Postgres segue a fonte de verdade).
+    elasticsearch_url: str = "http://localhost:9200"
+    elasticsearch_timeout: int = 30
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

@@ -60,6 +60,24 @@ services:
     ports:
       - "2181:2181"
 
+  # Busca — Elasticsearch (full-text, relevância, fuzziness) — Fase 11.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: energyhub-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m   # heap limitado (dev single-node)
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
   # Mensageria — Kafka (streams de alto volume, partições e consumer groups) — Fase 10.
   kafka:
     image: confluentinc/cp-kafka:7.6.1
@@ -91,3 +109,4 @@ volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
+  elasticsearch_data:

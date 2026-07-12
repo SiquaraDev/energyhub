@@ -1,9 +1,9 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–10)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–11)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 10 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
-Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis e Mensageria
-(RabbitMQ & Kafka)** (versão `0.10.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 11 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
+(RabbitMQ & Kafka) e Busca (Elasticsearch)** (versão `0.11.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -12,7 +12,8 @@ persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, ser
 routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, RBAC por permissão) da
 Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, o **cache Redis**
 (fastapi-cache2 + invalidação) da Fase 9, a **camada de mensageria assíncrona** (produtores/consumidores
-RabbitMQ + Kafka) da Fase 10, suas **assinaturas reais** e como estendê-las nas próximas fases.
+RabbitMQ + Kafka) da Fase 10, o **subsistema de busca** (Elasticsearch + full-text/filtros) da Fase 11,
+suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -854,7 +855,69 @@ falha de broker vire log, não `rollback` — a mensageria é _downstream_ da fo
 
 ---
 
-## 🚀 16. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🔎 16. Busca Full-Text (Elasticsearch · Fase 11)
+
+A **Fase 11** (versão `0.11.0`) adicionou um **subsistema de busca** sobre Elasticsearch: busca
+_full-text_ com relevância, tolerância a erros (fuzziness) e filtros compostos, sem carregar o banco
+transacional. O Elasticsearch é um **índice de leitura denormalizado** — o **PostgreSQL segue a fonte
+de verdade** e o índice é reconstruível a partir dele a qualquer momento.
+
+### 16.1 🧱 As peças
+
+Config compartilhada em `shared/infrastructure/search/`; documentos/repositórios por módulo em
+`<módulo>/infrastructure/search/`; serviço em `application/service/`; router em `presentation/router/`:
+
+| Arquivo | Papel |
+| :------ | :---- |
+| `shared/.../search/elasticsearch_config.py` | `ElasticsearchConfig` — `get_client()` (cliente **síncrono** singleton) + `create_indices(documents)` **idempotente** (recebe as classes do chamador; `shared` não importa módulos de negócio) |
+| `shared/.../search/analyzers.py` | `portuguese_analyzer` customizado (lowercase + stopwords + _stemming_ leve), registrado nas settings do índice ao ser referenciado num campo |
+| `clients/.../search/client_document.py`, `contracts/.../search/contract_document.py` | `Document` por entidade — `Keyword` (filtro exato), `Text` (analisado PT), `Date`/`Boolean`/`Double`; `from_entity` achata enums/`Decimal`/id (`meta.id`) |
+| `clients/.../search/client_search_repository.py`, `contracts/...` | Indexação (`save`/`delete`) + _finders_ estruturados (`term`/`match`/`bool`) |
+| `clients/application/service/client_search_service.py` | `search` (`multi_match` + fuzziness), `filter_by_location`, `advanced_search`; paginação via `PageRequest`/`PageResponse` |
+| `shared/application/dto/search_filter.py` | `SearchFilter` / `FilterCondition` (`eq` → term, `gt`/`lt`/`gte`/`lte` → range) |
+| `clients/presentation/router/client_search_router.py` | Router `/api/v1/search/clients` (GET `/`, GET `/location`, POST `/advanced`) |
+
+Os índices são criados no **`lifespan`** da app (`create_indices([ClientDocument, ContractDocument])`,
+guardado). `ClientMapper.document_to_response_dto` projeta o documento de volta no `ClientResponseDTO`.
+
+### 16.2 🔤 `Keyword` vs. `Text` + full-text com boosting
+
+Atributos de casamento exato (cnpj, email, city, state, ids, status/tipo) são `Keyword`; os nomes
+(razão social/fantasia) são `Text` com o analisador português. A busca full-text é um único
+`multi_match` com **boosting** (`corporate_name^2`, `trade_name^1.5`, `cnpj`) e **`fuzziness='AUTO'`**,
+ordenado por relevância:
+
+```python
+search = self._repository.new_search().query(
+    "multi_match", query=query, fields=["corporate_name^2", "trade_name^1.5", "cnpj"], fuzziness="AUTO"
+)
+response = search[offset : offset + limit].execute()
+total = response.hits.total.value  # -> PageResponse.total_elements
+```
+
+### 16.3 🎛️ Busca avançada e `min_score`
+
+`advanced_search` monta uma query `bool` composta: um `multi_match` **opcional** + cada `FilterCondition`
+vira um `term` (operador `eq`) ou `range` (`gt`/`lt`/`gte`/`lte`) no _filter context_; um `min_score`
+opcional descarta hits de baixa relevância. Espelha o split _finders_ × filtro-DTO da persistência (Fase 5).
+
+### 16.4 ⚠️ Notas e limitações
+
+- **Índice secundário, não autoritativo:** a API `save`/`delete` mantém o índice, mas a **sincronização
+  garantida em tempo real** (consumir eventos da Fase 10 para reindexar) fica para uma fase posterior;
+  hoje o índice é populado sob demanda e **reconstruível** a partir do Postgres.
+- **Síncrono em threadpool:** cliente ES síncrono; serviço/endpoints são `def` → o FastAPI os roda num
+  _threadpool_ (não bloqueiam o event loop). Router sob `/api/v1/search/clients` (prefixo próprio para
+  não colidir com `/api/v1/clients/{id}`).
+- **Deps/tipos:** `elasticsearch ^8.0` (tipado) + `elasticsearch-dsl ^8.0` (sem `py.typed` → _override_
+  de mypy `elasticsearch_dsl.*`). Segurança do cluster **desabilitada** (dev/local). No Windows, o ES
+  **conecta do host** (como Redis/RabbitMQ/Kafka; só o Postgres falha).
+- **Alavancas de _tuning_** (latência, sem mudar o contrato): campos `Keyword` extras para filtros
+  frequentes; ajuste do analisador (stopwords/stemming); dimensionamento de _shards_/réplicas.
+
+---
+
+## 🚀 17. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -889,7 +952,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 17. Referências
+## 📚 18. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

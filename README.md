@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 10 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 11 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -61,10 +61,12 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > a API é **auto-descritiva** (**OpenAPI curado**, DTOs com exemplos, **erros padronizados** +
 > `error_code`, guias [`docs/API_ERRORS.md`](docs/API_ERRORS.md)/[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)),
 > há um **cache Redis** de leitura (`fastapi-cache2`) com invalidação na escrita e um router
-> `/api/v1/cache` protegido por `CACHE_MANAGE`, e uma **camada de mensageria assíncrona**
+> `/api/v1/cache` protegido por `CACHE_MANAGE`, uma **camada de mensageria assíncrona**
 > (**RabbitMQ** para workflows + **Kafka** para streams) publica eventos de domínio pós-commit e os
-> consome fora do caminho da requisição (`NotificationConsumer`, `AuditConsumer`).
-> **Próxima: Fase 11** (subsistema de busca — Elasticsearch). Consulte o
+> consome fora do caminho da requisição (`NotificationConsumer`, `AuditConsumer`), e um **subsistema
+> de busca** (**Elasticsearch**) oferece full-text com relevância/fuzziness e filtros compostos em
+> `/api/v1/search/clients`.
+> **Próxima: Fase 12** (observabilidade — métricas, dashboards e alertas). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -270,13 +272,14 @@ git clone https://github.com/Matheus-Siquara/energyhub.git
 cd energyhub
 ```
 
-### 2. Subir a infraestrutura (PostgreSQL + Redis + RabbitMQ + Kafka)
+### 2. Subir a infraestrutura (PostgreSQL + Redis + RabbitMQ + Kafka + Elasticsearch)
 
 ```bash
-docker compose up -d          # PostgreSQL 16 · Redis 7 · RabbitMQ 3 · Kafka + Zookeeper
+docker compose up -d          # PostgreSQL 16 · Redis 7 · RabbitMQ 3 · Kafka + Zookeeper · Elasticsearch 8
 docker exec energyhub-redis redis-cli ping              # PONG
 docker exec energyhub-rabbitmq rabbitmq-diagnostics ping  # Ping succeeded  (UI: http://localhost:15672)
 docker exec energyhub-kafka kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null && echo "kafka ok"
+curl -s http://localhost:9200/_cluster/health           # status: green (Elasticsearch)
 ```
 
 ### 3. Instalar dependências e rodar a aplicação

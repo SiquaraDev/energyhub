@@ -28,7 +28,10 @@ from energyhub.auth.presentation.router.permission_router import PermissionRoute
 from energyhub.auth.presentation.router.role_router import RoleRouter
 from energyhub.auth.presentation.router.user_router import UserRouter
 from energyhub.clients.infrastructure.messaging.client_event_producer import client_event_producer
+from energyhub.clients.infrastructure.search.client_document import ClientDocument
 from energyhub.clients.presentation.router.client_router import ClientRouter
+from energyhub.clients.presentation.router.client_search_router import ClientSearchRouter
+from energyhub.contracts.infrastructure.search.contract_document import ContractDocument
 from energyhub.contracts.presentation.router.contract_router import ContractRouter
 from energyhub.financial.presentation.router.financial_router import FinancialRouter
 from energyhub.negotiations.presentation.router.negotiation_router import NegotiationRouter
@@ -40,6 +43,7 @@ from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import kafka_event_producer
 from energyhub.shared.infrastructure.messaging.rabbitmq_config import setup_queues
 from energyhub.shared.infrastructure.persistence.mapping import configure_mappings
+from energyhub.shared.infrastructure.search.elasticsearch_config import ElasticsearchConfig
 from energyhub.shared.presentation.exception.domain_exception_handler import (
     domain_exception_handler,
 )
@@ -71,6 +75,7 @@ _OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "Notifications", "description": "Notificações do sistema."},
     {"name": "Reports", "description": "Relatórios do negócio."},
     {"name": "Cache", "description": "Administração do cache (estatísticas e limpeza)."},
+    {"name": "Search", "description": "Busca full-text e filtros (Elasticsearch)."},
     {"name": "Health", "description": "Verificações de disponibilidade (raiz e health check)."},
 ]
 
@@ -96,6 +101,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await KafkaConfig.create_topics()
     except Exception as error:  # broker indisponível não deve impedir o startup
         logger.warning("Tópicos Kafka não preparados (broker indisponível?): %s", error)
+    try:
+        ElasticsearchConfig.create_indices([ClientDocument, ContractDocument])
+    except Exception as error:  # Elasticsearch indisponível não deve impedir o startup
+        logger.warning("Índices Elasticsearch não preparados (ES indisponível?): %s", error)
 
     yield
 
@@ -165,6 +174,9 @@ app.include_router(ReportRouter().get_router())
 
 # Router de administração do cache (Fase 9) — protegido por CACHE_MANAGE.
 app.include_router(CacheRouter().get_router())
+
+# Router de busca de clientes (Fase 11) — Elasticsearch, sob /api/v1/search/clients.
+app.include_router(ClientSearchRouter().get_router())
 
 
 def custom_openapi() -> dict[str, Any]:

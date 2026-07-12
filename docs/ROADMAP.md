@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 10
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.10.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 11 — Subsistema de Busca
-> (Elasticsearch)**. As **Fases 11–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 11
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.11.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 12 — Observabilidade
+> (Métricas, Dashboards e Alertas)**. As **Fases 12–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -267,7 +267,7 @@ RabbitMQ, Contract/Invoice → Kafka) via `publish_safely`; topologia preparada 
 handler falho, e falha de publicação → `MessagePublishingException` sem desfazer a escrita. Nota Windows:
 **RabbitMQ e Kafka conectam do host** (só o E2E que grava no banco roda no container da rede do compose).
 
-### 📋 Fase 11 — Subsistema de Busca com Elasticsearch · `0.11.0`
+### ✅ Fase 11 — Subsistema de Busca com Elasticsearch · `0.11.0` _(concluída)_
 **Objetivo:** oferecer busca _full-text_ com ranqueamento por relevância, tolerância a erros e filtros compostos sobre clientes e contratos.
 
 **Entregáveis:**
@@ -276,6 +276,20 @@ handler falho, e falha de publicação → `MessagePublishingException` sem desf
 - `advanced-search-filters` (`SearchFilter`/`FilterCondition`) · `search-api-endpoints` · `search-performance-tests`
 
 > Elasticsearch é um _read store_ secundário e reconstruível; **PostgreSQL permanece a fonte da verdade**.
+
+_Como implementado:_ serviço **`elasticsearch:8.13.4`** (single-node, segurança off, heap 512m, healthcheck
+`_cluster/health`, volume) no compose; deps `elasticsearch`/`elasticsearch-dsl ^8.0` e settings
+`elasticsearch_url`/`elasticsearch_timeout`. `ElasticsearchConfig` (cliente **síncrono** singleton +
+`create_indices(documents)` idempotente — recebe as classes do chamador, `shared` não importa módulos de
+negócio). Analisador **português** customizado + `ClientDocument`/`ContractDocument` (keyword/text/date/`Double`,
+`from_entity` achatando enums/`Decimal`/id). Repositórios de busca (`save`/`delete` + _finders_) e
+`ClientSearchService` (**`multi_match`** com boosting `corporate_name^2`/`trade_name^1.5`/`cnpj` +
+`fuzziness='AUTO'`, `filter_by_location`, `advanced_search` com `SearchFilter`/`FilterCondition` +
+`min_score`), paginado via `PageRequest`/`PageResponse` (`hits.total.value`). Router
+**`/api/v1/search/clients`** (full-text/location/advanced, endpoints síncronos → threadpool), índices criados no
+**lifespan**. Verificado: **ruff/black/mypy (425) limpos** + **6 testes** (`pytest -k search`) contra o ES real —
+full-text < 1s, fuzziness, location, paginação, term+range e `min_score`. Nota Windows: o ES **conecta do host**
+(como Redis/RabbitMQ/Kafka; só o Postgres falha).
 
 ### 📋 Fase 12 — Observabilidade: Métricas, Dashboards e Alertas · `0.12.0`
 **Objetivo:** dar visibilidade em tempo real (throughput, latência, taxa de erro, volumes de negócio e recursos de host).
