@@ -5,11 +5,11 @@ The EnergyHub project requires domain entities to represent the business logic a
 ## What Changes
 
 - Create domain entities for all modules: User, Role, Permission (auth); Client, Contact (clients); Contract (contracts); Negotiation, EnergyTransaction (negotiations); Invoice, Payment (financial); AuditLog (audit); Notification (notifications); Report (reports)
-- Define relationships between entities using SQLAlchemy relationships
+- Model relationships between entities as plain Python references (entity lists / optional references); actual SQLAlchemy ORM mapping is deferred to Fase 5
 - Create enums for domain states and types: ContactType, ContractStatus, ContractType, NegotiationStatus, TransactionType, InvoiceStatus, NotificationStatus, AuditAction
 - Create Value Objects for domain concepts: CNPJ, Email, Money, PhoneNumber, Address, Percentage
 - Create aggregates with aggregate roots: AuthAggregate, ClientAggregate, ContractAggregate, NegotiationAggregate, FinancialAggregate
-- Implement domain rules and validations using Pydantic field validators
+- Implement domain rules and validations in the entity `__post_init__`, raising domain exceptions (`ValidationException`)
 - Create business methods in entities for state transitions
 - Create specific domain exceptions for business rule violations
 
@@ -28,7 +28,7 @@ The EnergyHub project requires domain entities to represent the business logic a
 - `domain-enums`: Creates enums for all domain states and types
 - `domain-value-objects`: Creates Value Objects for CNPJ, Email, Money, PhoneNumber, Address, Percentage
 - `domain-aggregates`: Creates aggregates with aggregate roots for consistency boundaries
-- `domain-validations`: Implements Pydantic validators and business rules in entities
+- `domain-validations`: Implements entity `__post_init__` validators and business rules in entities
 
 ### Modified Capabilities
 

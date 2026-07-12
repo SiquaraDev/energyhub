@@ -21,11 +21,11 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0, 1
-> e 2 estão CONCLUÍDAS e arquivadas** (versões `0.1.0` e `0.2.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 3 — Modelo de Domínio (DDD)**. As
-> **Fases 3–17 permanecem 📋 Planejadas**. Consulte o [CHANGELOG](./CHANGELOG.md) para o
-> mapeamento fase → versão.
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0, 1,
+> 2 e 3 estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.3.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 4 — Schema do Banco e Migrações
+> Alembic**. As **Fases 4–17 permanecem 📋 Planejadas**. Consulte o [CHANGELOG](./CHANGELOG.md)
+> para o mapeamento fase → versão.
 
 ---
 
@@ -126,7 +126,7 @@ _Como implementado:_ **layout `src`**; **`config` como pacote** (`settings.py` +
 
 ## 🧩 Etapa 2 — Domínio & Dados
 
-### 📋 Fase 3 — Modelo de Domínio (DDD) · `0.3.0`
+### ✅ Fase 3 — Modelo de Domínio (DDD) · `0.3.0` _(concluída)_
 **Objetivo:** implementar a camada de domínio completa (entidades, _value objects_, enums e
 agregados) de forma pura, sem acoplamento a infraestrutura.
 
@@ -136,6 +136,8 @@ agregados) de forma pura, sem acoplamento a infraestrutura.
 - `domain-enums` — `ContractStatus`, `NegotiationStatus`, `InvoiceStatus`, `TransactionType`, etc. (`str, Enum`)
 - `domain-aggregates` — `AuthAggregate`, `ClientAggregate`, `ContractAggregate`, `NegotiationAggregate`, `FinancialAggregate`
 - `domain-validations` — validadores Pydantic e métodos de transição de estado nas entidades
+
+_Como implementado:_ **domínio puro** (sem imports de framework): entidades `@dataclass(kw_only=True)` com validação no **`__post_init__`** (`ValidationException`); relacionamentos por **referências Python** + **agregados**; VOs como _frozen dataclasses_; verificado com **ruff / mypy / black** + _smoke test_ comportamental.
 
 ### 📋 Fase 4 — Schema do Banco e Migrações Alembic · `0.4.0`
 **Objetivo:** materializar o schema PostgreSQL de forma versionada, reproduzível e reversível.

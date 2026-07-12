@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–2** (`0.0.0` → `0.2.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.3.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–3** (`0.0.0` → `0.3.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.4.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **14 capacidades** (7 da Fase 0 + 7 da Fase 2).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **26 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
@@ -238,7 +238,7 @@ Schema PostgreSQL versionado, reproduzível e reversível via Alembic.
 
 ---
 
-## [0.3.0] — 🔮 Planejado · _Fase 3 · Modelo de Domínio_
+## [0.3.0] — 2026-07-12 · ✅ Lançado · _Fase 3 · Modelo de Domínio_
 
 Camada de domínio DDD completa e independente de infraestrutura.
 
@@ -247,7 +247,8 @@ Camada de domínio DDD completa e independente de infraestrutura.
 - Enums de estado/tipo (`ContractStatus`, `ContractType`, `NegotiationStatus`, `TransactionType`, `InvoiceStatus`, `NotificationStatus`, `AuditAction`, `ContactType`) como `(str, Enum)`.
 - _Value Objects_ (`CNPJ`, `Email`, `Money`, `PhoneNumber`, `Address`, `Percentage`) como _frozen dataclasses_ com validação.
 - Agregados (`AuthAggregate`, `ClientAggregate`, `ContractAggregate`, `NegotiationAggregate`, `FinancialAggregate`).
-- Validações Pydantic, métodos de transição de estado e exceções de domínio específicas.
+- Validações no `__post_init__` (`ValidationException`), métodos de transição de estado (ex.: `Contract.approve/activate`) e exceções de domínio específicas (`InvalidContractStatus/ClientState/Negotiation`).
+- Relacionamentos como **referências Python** (listas + refs opcionais) combinados com os agregados — sem ORM nesta fase (mapeamento SQLAlchemy fica na Fase 5).
 
 ---
 

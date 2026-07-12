@@ -1,17 +1,20 @@
-## ADDED Requirements
+# domain-validations Specification
 
-### Requirement: Pydantic field validators
-The system SHALL implement Pydantic field validators for entity fields.
+## Purpose
+TBD - created by archiving change implement-fase-3. Update Purpose after archive.
+## Requirements
+### Requirement: Entity field validators
+The system SHALL implement entity field validators in the domain entities' `__post_init__`.
 
 #### Scenario: Username validation
 - **WHEN** User entity username field is set
 - **THEN** it SHALL validate username is not empty
-- **THEN** it SHALL raise ValueError if username is empty
+- **THEN** it SHALL raise ValidationException if username is empty
 
 #### Scenario: Email validation
 - **WHEN** User entity email field is set
 - **THEN** it SHALL validate email contains @ symbol
-- **THEN** it SHALL raise ValueError if email is invalid
+- **THEN** it SHALL raise ValidationException if email is invalid
 
 ### Requirement: Business rule exceptions
 The system SHALL create specific domain exceptions for business rule violations.
@@ -43,3 +46,4 @@ The system SHALL implement helper methods in entities for relationship managemen
 - **WHEN** User entity remove_role method is called
 - **THEN** it SHALL remove role from user's roles list
 - **THEN** it SHALL remove user from role's users list
+

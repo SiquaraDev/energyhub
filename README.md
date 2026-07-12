@@ -52,10 +52,12 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0, 1 e 2 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0, 1, 2 e 3 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o _scaffolding_ (**FastAPI + Poetry + PostgreSQL**) e o esqueleto
 > de **Clean Architecture com classes-base** já existem, o **primeiro teste de regressão** está
-> presente e o **CORS** está configurado. **Próxima: Fase 3** (modelo de domínio). Consulte o
+> presente e o **CORS** está configurado. O **modelo de domínio DDD** (entidades, _value objects_,
+> enums e agregados) já está implementado como **domínio puro**. **Próxima: Fase 4** (schema do banco
+> e migrações Alembic). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -123,6 +125,10 @@ no guia **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 ---
 
 ## 💎 Modelo de domínio
+
+> ✅ **Implementado na Fase 3.** Entidades, _value objects_, enums e agregados já existem como
+> **domínio puro** — _dataclasses_ sem imports de framework, com validação no `__post_init__`. O
+> **mapeamento ORM** (SQLAlchemy) para essas entidades está previsto para a **Fase 5**.
 
 **Entidades** (por módulo):
 

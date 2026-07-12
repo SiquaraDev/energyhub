@@ -5,7 +5,7 @@
 > Para a **visão geral completa** do projeto (funcionalidades, arquitetura, stack, como executar),
 > veja o **[README principal](../README.md)** na raiz do repositório.
 
-> 📌 **Estado:** Fases 0–2 implementadas (versão `0.2.0`); a próxima é a **Fase 3**.
+> 📌 **Estado:** Fases 0–3 implementadas (versão `0.3.0`); a próxima é a **Fase 4**.
 
 ---
 

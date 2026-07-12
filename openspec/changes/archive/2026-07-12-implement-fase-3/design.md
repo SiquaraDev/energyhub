@@ -6,11 +6,11 @@ Fase 3 builds upon the architectural structure established in Fase 2 to implemen
 
 **Goals:**
 - Create all domain entities for the energy trading platform following DDD principles
-- Implement relationships between entities using SQLAlchemy relationships (for future ORM mapping)
+- Model relationships between entities as plain Python references (ORM mapping deferred to Fase 5)
 - Create enums to represent domain states and types
 - Create Value Objects for domain concepts with validation logic
 - Define aggregates with aggregate roots to enforce consistency boundaries
-- Implement business rules and validations using Pydantic field validators
+- Implement business rules and validations in entity `__post_init__` raising domain exceptions
 - Create business methods in entities for state transitions
 - Create specific domain exceptions for business rule violations
 
@@ -26,13 +26,13 @@ Fase 3 builds upon the architectural structure established in Fase 2 to implemen
 
 **Entity Implementation - Python Dataclasses:**
 - **Decision:** Use Python dataclasses for domain entities extending BaseEntity
-- **Rationale:** Dataclasses provide boilerplate-free classes with type hints, immutability options, and are compatible with Pydantic validation. They are pure Python and don't couple to infrastructure.
+- **Rationale:** Dataclasses provide boilerplate-free classes with type hints and immutability options. They are pure Python and don't couple to infrastructure (no framework imports in the domain).
 - **Alternative considered:** Pydantic models - rejected as they are more suited for DTOs and API models, not domain entities
 
-**Relationships - SQLAlchemy Annotations:**
-- **Decision:** Define relationships using SQLAlchemy relationship() with back_populates
-- **Rationale:** SQLAlchemy is the chosen ORM for the project. Defining relationships now prepares for future ORM mapping while keeping entities as pure domain objects.
-- **Alternative considered:** Pure Python references - rejected as it would require manual relationship management later
+**Relationships - Plain Python References (pure domain):**
+- **Decision:** Model relationships as plain Python references (entity lists and optional references) plus aggregate classes; no SQLAlchemy in the domain
+- **Rationale:** The domain layer must not depend on frameworks (Clean Architecture dependency rule, Fase 2). SQLAlchemy `relationship()` also requires ORM-mapped classes, which only exist from Fase 5. Plain references keep the domain independent and testable.
+- **Alternative considered:** SQLAlchemy relationship() with back_populates - deferred to Fase 5 (ORM mapping), where entities are mapped to tables
 
 **Value Objects - Frozen Dataclasses:**
 - **Decision:** Use frozen dataclasses for Value Objects with validation in __post_init__
@@ -49,10 +49,10 @@ Fase 3 builds upon the architectural structure established in Fase 2 to implemen
 - **Rationale:** Aggregates represent consistency boundaries. Separate classes allow encapsulation of business rules that span multiple entities.
 - **Alternative considered:** Adding methods directly to entities - rejected as it doesn't clearly define aggregate boundaries
 
-**Validation - Pydantic Field Validators:**
-- **Decision:** Use Pydantic @field_validator for entity field validation
-- **Rationale:** Pydantic provides robust validation with clear error messages. It integrates well with dataclasses and is widely adopted in the Python ecosystem.
-- **Alternative considered:** Custom validation methods - rejected due to boilerplate and lack of standardization
+**Validation - Entity __post_init__ (pure domain):**
+- **Decision:** Validate entity fields in `__post_init__`, raising `ValidationException` (domain exception hierarchy)
+- **Rationale:** Entities are plain dataclasses extending BaseEntity, so Pydantic `@field_validator` would not run and would couple the domain to Pydantic (forbidden by the dependency rule). `__post_init__` validation keeps the domain pure and reuses the project's `DomainException` hierarchy.
+- **Alternative considered:** Pydantic @field_validator - rejected: incompatible with plain dataclasses and violates domain purity
 
 **Business Methods - Entity Methods:**
 - **Decision:** Implement business methods directly in entities for state transitions
@@ -66,8 +66,8 @@ Fase 3 builds upon the architectural structure established in Fase 2 to implemen
 
 ## Risks / Trade-offs
 
-**Risk:** SQLAlchemy relationships in domain entities may couple domain to infrastructure
-- **Mitigation:** Relationships are defined as forward references and can be removed if needed. The entities remain usable without database access.
+**Risk (resolved):** Coupling the domain to infrastructure via SQLAlchemy relationships
+- **Resolution:** Relationships are modeled as plain Python references; SQLAlchemy ORM mapping is deferred to Fase 5. The domain imports no framework and remains usable without a database.
 
 **Risk:** Complex validation logic may make entities difficult to maintain
 - **Mitigation:** Keep validation focused on single fields. Complex cross-field validation should be in aggregate methods or domain services.

@@ -1,11 +1,12 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fase 2)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–3)
 
-Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final da
-**Fase 2 — Clean Architecture e Classes Base** (versão `0.2.0`). Enquanto o
-[documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md) define _como o código **deveria**
-se organizar_ (arquitetura planejada), este artefato registra _o que **de fato** existe no
-repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as **classes-base** já
-implementadas em `shared`, suas **assinaturas reais** e como estendê-las nas próximas fases.
+Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
+**Fases 2 e 3 — Clean Architecture, Classes Base e Modelo de Domínio (DDD)** (versão `0.3.0`).
+Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md) define _como o código
+**deveria** se organizar_ (arquitetura planejada), este artefato registra _o que **de fato** existe
+no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as **classes-base** já
+implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_, enums e agregados)
+das Fases 2–3, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -16,7 +17,7 @@ implementadas em `shared`, suas **assinaturas reais** e como estendê-las nas pr
 ## 🏛️ 1. Visão geral
 
 O EnergyHub segue **Clean Architecture** e **Domain-Driven Design (DDD)** sobre a stack
-**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 2, o código
+**Python 3.12+ · FastAPI · SQLAlchemy 2.0 async · PostgreSQL 16**. Ao final da Fase 3, o código
 Python está organizado assim:
 
 | Dimensão | Valor (as-built) |
@@ -29,13 +30,15 @@ Python está organizado assim:
 | **Configuração** | `config/` é **pacote** (não módulo único): `settings.py` + `dependencies/` |
 
 O `shared` é o único módulo **transversal**: não modela negócio, apenas fornece os blocos
-reutilizados por todos os demais. Os outros 8 módulos são de **negócio** e, na Fase 2, existem
-como esqueleto (árvore de pacotes com `__init__.py`) pronto para receber entidades a partir da
-Fase 3.
+reutilizados por todos os demais. Os outros 8 módulos são de **negócio** e, a partir da Fase 3, têm
+a camada `domain` preenchida com **entidades, enums e agregados** (ver Seção 8);
+as camadas `application`, `infrastructure` e `presentation` permanecem como esqueleto, a serem
+preenchidas nas próximas fases.
 
 > 🧱 A anatomia interna é idêntica em todos os módulos: cada um repete as mesmas **4 camadas** e os
-> mesmos **sub-pacotes**. Só o `shared` está preenchido com código; os módulos de negócio ainda
-> estão vazios (apenas a estrutura de diretórios).
+> mesmos **sub-pacotes**. Na Fase 3, além do `shared`, a camada `domain` de cada módulo de negócio
+> passou a conter código; as demais camadas dos módulos de negócio ainda estão vazias (apenas a
+> estrutura de diretórios).
 
 ---
 
@@ -58,7 +61,7 @@ energyhub/                              # projeto Poetry (raiz Python)
 │   ├── shared/                         # módulo transversal (classes-base)
 │   │   ├── domain/
 │   │   │   ├── entity/base_entity.py           # BaseEntity
-│   │   │   ├── valueobject/                     # (VOs comuns — Fase 3+)
+│   │   │   ├── valueobject/                     # 6 VOs (CNPJ, Email, Money, PhoneNumber, Address, Percentage) — Fase 3
 │   │   │   ├── repository/repository.py         # Repository[T, ID]
 │   │   │   ├── service/                         # (serviços de domínio — futuro)
 │   │   │   └── exception/
@@ -87,7 +90,7 @@ energyhub/                              # projeto Poetry (raiz Python)
 │   │   └── enums/                               # (enums transversais — futuro)
 │   │
 │   ├── auth/                           # ── módulo de negócio (exemplo) ──
-│   │   ├── domain/         entity/ valueobject/ repository/ service/ exception/
+│   │   ├── domain/         entity/ valueobject/ repository/ service/ exception/  # domain preenchido na Fase 3: User/Role/Permission + auth_aggregate.py
 │   │   ├── application/    dto/ mapper/ usecase/ service/ exception/
 │   │   ├── infrastructure/ persistence/ messaging/ config/ security/
 │   │   └── presentation/   router/ request/ response/ exception/
@@ -98,10 +101,12 @@ energyhub/                              # projeto Poetry (raiz Python)
 └── tests/                             # conftest.py (fixture TestClient), test_base_entity.py
 ```
 
-> ℹ️ Cada pacote e sub-pacote contém um `__init__.py` (são **211** no total). Os diretórios sem
-> arquivo `.py` de conteúdo (ex.: `valueobject/`, `mapper/`, `messaging/`) já existem como
-> pacotes vazios, prontos para serem preenchidos nas fases seguintes. O `docker-compose.yml`
-> (PostgreSQL 16) vive na raiz do repositório, um nível acima de `energyhub/`.
+> ℹ️ Cada pacote e sub-pacote contém um `__init__.py`. Na Fase 3, `shared/domain/valueobject/` e a
+> camada `domain/` de cada módulo de negócio (`entity/`, `exception/` e os `*_aggregate.py`) deixaram
+> de ser pacotes vazios (ver Seção 8). Os demais diretórios sem arquivo
+> `.py` de conteúdo (ex.: `mapper/`, `messaging/`, `service/`) seguem como pacotes vazios, prontos para
+> serem preenchidos nas fases seguintes. O `docker-compose.yml` (PostgreSQL 16) vive na raiz do
+> repositório, um nível acima de `energyhub/`.
 
 ---
 
@@ -227,8 +232,11 @@ A Clean Architecture é preservada por uma **regra de dependência** estrita: o 
 > 🔒 Na prática: `BaseEntity`, `Repository`, `DomainException` e as 3 subclasses **não importam**
 > nenhum framework — só `dataclasses`, `datetime`, `uuid`, `abc`, `typing`. Já
 > `SQLAlchemyRepository` (infra) importa SQLAlchemy e `global_exception_handler`/`BaseRouter`
-> (presentation) importam FastAPI. Verificação da Fase 2: **233 módulos importam sem erro**;
-> `ruff`/`mypy`/`black` limpos; `pytest` verde.
+> (presentation) importam FastAPI. Na Fase 3, todo o domínio de negócio (entidades, VOs, enums,
+> agregados e exceções) também depende apenas da biblioteca-padrão — **zero imports de framework**.
+> Verificação (Fases 2–3): **268 módulos importam sem erro**; `ruff` / `mypy` (269 arquivos) /
+> `black` limpos; smoke test comportamental do domínio (VOs, validações, regras do `Contract`,
+> agregados) verde.
 
 ---
 
@@ -242,7 +250,7 @@ Blocos utilitários transversais já preenchidos (exceto `enums`, ainda vazio):
 | :------ | :------ | :--------- |
 | `date_utils.py` | `utcnow()`, `to_iso(value)`, `is_past(value)` | Sempre UTC _timezone-aware_ |
 | `string_utils.py` | `is_blank(value)`, `normalize_whitespace(value)`, `only_digits(value)` | `only_digits` útil para CNPJ/telefone |
-| `validation_utils.py` | `is_valid_email(value)`, `is_valid_cnpj_length(value)`, `is_positive(value)` | Validações básicas — validação rica (ex.: DV do CNPJ) fica nos _Value Objects_ na Fase 3 |
+| `validation_utils.py` | `is_valid_email(value)`, `is_valid_cnpj_length(value)`, `is_positive(value)` | Validações básicas — a validação rica (ex.: DV do CNPJ) já vive nos _Value Objects_ (Fase 3, Seção 8) |
 
 ### 6.2 `shared/constant/` — constantes nomeadas
 
@@ -289,16 +297,98 @@ público `from energyhub.config import settings`.
 
 ---
 
-## 🚀 8. Como adicionar uma nova entidade/módulo (próximas fases)
+## 💎 8. Modelo de Domínio (Fase 3)
+
+A **Fase 3** (versão `0.3.0`) preencheu a camada `domain` dos 8 módulos de negócio com **domínio
+puro**: **13 entidades**, **8 enums**, **6 _value objects_**, **5 agregados** e **3 exceções de
+domínio** — nada disso importa framework (só biblioteca-padrão). O mapeamento ORM (modelos
+SQLAlchemy + `relationship()`) fica para a **Fase 5**; até lá, os relacionamentos entre entidades
+são **referências Python** em memória.
+
+### 8.1 🧩 Entidades e enums por módulo
+
+Cada entidade estende `BaseEntity` como `@dataclass(kw_only=True)`; os enums são `(str, Enum)`.
+Ambos vivem em `<módulo>/domain/entity/`.
+
+| Módulo | Entidades | Enums |
+| :----- | :-------- | :---- |
+| `auth` | `User`, `Role`, `Permission` | — |
+| `clients` | `Client`, `Contact` | `ContactType` |
+| `contracts` | `Contract` | `ContractStatus`, `ContractType` |
+| `negotiations` | `Negotiation`, `EnergyTransaction` | `NegotiationStatus`, `TransactionType` |
+| `financial` | `Invoice`, `Payment` | `InvoiceStatus` |
+| `audit` | `AuditLog` | `AuditAction` |
+| `notifications` | `Notification` | `NotificationStatus` |
+| `reports` | `Report` | — |
+| **Total** | **13 entidades** | **8 enums** |
+
+### 8.2 💠 Value Objects (`shared/domain/valueobject/`)
+
+Os 6 _value objects_ são **frozen dataclasses** (imutáveis). Os que exigem validação a fazem no
+`__post_init__`, levantando **`ValueError`** quando o dado é inválido (VOs **não** dependem de
+`ValidationException` nem de Pydantic):
+
+| VO | Campos | Validação / normalização |
+| :- | :----- | :------------------------ |
+| `CNPJ` | `value: str` | dígitos verificadores (algoritmo da Receita); guarda só os 14 dígitos; `formatted()` → `XX.XXX.XXX/XXXX-XX` |
+| `Email` | `value: str` | exige `@` e normaliza para minúsculas |
+| `PhoneNumber` | `value: str` | mantém só os dígitos; exige de 10 a 13 |
+| `Percentage` | `value: Decimal` | intervalo `0 ≤ value ≤ 100` |
+| `Money` | `amount: Decimal`, `currency: str = "BRL"` | valor monetário com moeda (Decimal para precisão) — estrutura imutável, sem validação |
+| `Address` | `street`, `city`, `state`, `zip_code`, `country="Brasil"` | endereço postal estruturado — estrutura imutável, sem validação |
+
+### 8.3 🧱 Agregados e exceções de domínio
+
+Os **5 agregados** vivem em `<módulo>/domain/<x>_aggregate.py` — classes simples que encapsulam uma
+**raiz** e delegam as regras de negócio a ela (fronteira de consistência):
+
+| Agregado | Raiz | Fronteira de consistência |
+| :------- | :--- | :------------------------ |
+| `AuthAggregate` | `User` | `Role` (via `add_role`/`remove_role`) |
+| `ClientAggregate` | `Client` | `Contact` (via `add_contact`/`remove_contact`) |
+| `ContractAggregate` | `Contract` | transições de estado (`approve`/`activate`) |
+| `NegotiationAggregate` | `Negotiation` | `EnergyTransaction` |
+| `FinancialAggregate` | `Invoice` | `Payment` |
+
+As **3 exceções de domínio** estendem `DomainException` diretamente, em `<módulo>/domain/exception/`:
+`InvalidContractStatusException` (contracts), `InvalidClientStateException` (clients) e
+`InvalidNegotiationException` (negotiations).
+
+### 8.4 🧬 Padrões do domínio puro
+
+- **Entidades** — `@dataclass(kw_only=True)` estendendo `BaseEntity`. A validação roda no
+  `__post_init__` (que chama `super().__post_init__()` primeiro) e levanta **`ValidationException`**
+  em vez de usar validadores Pydantic. Ex.: `Contract.__post_init__` recusa `end_date < start_date`
+  e valores negativos.
+- **Relacionamentos** — são **referências Python**: listas via
+  `field(default_factory=list, compare=False, repr=False)` (ex.: `User.roles`, `Client.contacts`) e
+  refs opcionais via `field(default=None, compare=False, repr=False)` (ex.: `Contract.client`). O
+  `compare=False, repr=False` evita **recursão** em `__eq__`/`__repr__` entre entidades ligadas nos
+  dois sentidos, e os imports das entidades relacionadas ficam sob `if TYPE_CHECKING:` para não criar
+  ciclos de importação.
+- **Métodos de negócio na raiz** — `Contract.approve()` exige status `PENDING_APPROVAL` → `APPROVED`;
+  `Contract.activate()` exige `APPROVED` + `start_date` não futura → `ACTIVE` (ambos levantam
+  `InvalidContractStatusException`). `User.add_role`/`remove_role` mantêm a relação `User`↔`Role`
+  bidirecional; `Role.add_permission`/`remove_permission` gerenciam as permissões.
+- **Value Objects** — frozen dataclasses que levantam `ValueError` (ver 8.2).
+- **ORM adiado** — nenhum modelo SQLAlchemy ou `relationship()` no domínio; o mapeamento ORM e a
+  persistência dos relacionamentos entram na **Fase 5**.
+
+---
+
+## 🚀 9. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
 1. **Escolha o módulo** dono da entidade (ex.: `clients`). A árvore de 4 camadas × sub-pacotes já
    está criada — não é preciso recriar diretórios.
 2. **Domain** — crie a entidade em `clients/domain/entity/` estendendo `BaseEntity`
-   (`@dataclass(kw_only=True)`); declare _value objects_ em `valueobject/`, a interface de
-   repositório em `repository/` estendendo `Repository[T, ID]`, e exceções específicas em
-   `exception/` (subclassando `DomainException` ou uma das 3 filhas).
+   (`@dataclass(kw_only=True)`), com validação no `__post_init__` levantando `ValidationException` e
+   relacionamentos como referências Python (`field(compare=False, repr=False)`); declare _value
+   objects_ em `valueobject/` (frozen dataclasses), a interface de repositório em `repository/`
+   estendendo `Repository[T, ID]`, e exceções específicas em `exception/` (subclassando
+   `DomainException` ou uma das 3 filhas). Os módulos já entregues na Fase 3 (ver
+   Seção 8) servem de exemplo concreto desses padrões.
 3. **Application** — crie DTOs em `dto/` (estendendo `BaseDTO` quando fizer sentido), mapeadores em
    `mapper/`, e casos de uso em `usecase/` implementando `UseCase[Input, Output]`.
 4. **Infrastructure** — crie o modelo ORM e o repositório concreto em `persistence/`, estendendo
@@ -315,7 +405,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 9. Referências
+## 📚 10. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.
