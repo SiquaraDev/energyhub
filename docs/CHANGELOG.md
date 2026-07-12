@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–8** (`0.0.0` → `0.8.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.9.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–9** (`0.0.0` → `0.9.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.10.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **58 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **63 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -32,6 +32,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **API REST (Fase 6):** camadas de aplicação e apresentação — DTOs/mappers/services/use-cases/exceções e **10 routers (25 endpoints)** sob `/api/v1/`, auto-documentados em `/docs`; handler de exceções domínio→HTTP; `auth` com M2M e hash bcrypt.
 - **Segurança JWT/RBAC (Fase 7):** login (`POST /api/v1/auth/login`) + `JwtService` (HS256), `get_current_user`/`UserDetails` e guards `require_permission`/`require_role`; **10 routers protegidos** (54 guards por endpoint), catálogo de permissões (`shared/constant/permissions.py`) e migração `0009` que semeia **38 permissões** e concede todas ao `ADMIN`. Sem token → 401; sem permissão → 403.
 - **Documentação da API (Fase 8):** OpenAPI curado (`custom_openapi()` com contato/licença, esquema `bearerAuth` JWT, 12 tags), endpoints e DTOs documentados com exemplos, erros padronizados (`ErrorResponse`/`ValidationErrorResponse` + `error_code`) e guias `docs/API_ERRORS.md` / `docs/API_EXAMPLES.md`.
+- **Cache Redis (Fase 9):** serviço `redis:7-alpine` no compose, `CacheConfig`/`CacheConstants`, `@cache` nos reads de 5 serviços (namespaces + TTLs), invalidação em create/update/delete, e router `/api/v1/cache` (`/stats`, `/clear`) protegido por `CACHE_MANAGE` (migração `0010`).
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -156,16 +157,24 @@ Comunicação orientada a eventos entre módulos, fora do caminho da requisiçã
 
 ---
 
-## [0.9.0] — 🔮 Planejado · _Fase 9 · Cache (Redis)_
+## [0.9.0] — 2026-07-12 · ✅ Lançado · _Fase 9 · Cache (Redis)_
 
-_Read-cache_ Redis com invalidação explícita na escrita.
+_Read-cache_ Redis com invalidação explícita na escrita, sobre os serviços das Fases 6–8.
 
 ### Adicionado
-- Serviço `redis:7-alpine` (`--appendonly yes`, volume, _healthcheck_) e dependências `redis` / `fastapi-cache2[redis]`.
-- `CacheConfig` inicializando `FastAPICache` com `RedisBackend`, prefixo `energyhub` e _key builder_ determinístico.
-- Cache de métodos de leitura via `@cache` com _namespaces_ por domínio e TTLs escalonados (`CacheConstants`).
-- Helpers de invalidação (`invalidate_cache`, `invalidate_all_cache`) acionados em create/update/delete.
-- Rota administrativa `/api/v1/cache` (`GET /stats`, `POST /clear`) protegida pela permissão `CACHE_MANAGE`.
+- Serviço `redis:7-alpine` (`--appendonly yes`, volume `redis_data`, _healthcheck_ `redis-cli ping`) no `docker-compose.yml`; dependências `redis (^4.6)` e `fastapi-cache2[redis]` (+ `jinja2`, exigido pelo `fastapi-cache2`).
+- Settings de conexão Redis (`redis_host`/`redis_port`/`redis_db`/`redis_password` + `redis_url` derivada) em `energyhub.config.settings`.
+- `CacheConfig` (`shared/infrastructure/cache/`) inicializando `FastAPICache` com `RedisBackend`, prefixo `energyhub` e **`PickleCoder`** (round-trip fiel de DTOs Pydantic), chamado no **lifespan** da app; `get_cache_key` determinístico + _key builders_ que ignoram o `self`.
+- `CacheConstants` com namespaces por domínio (`roles`/`permissions`/`clients`/`contracts`/`users`) e TTLs `SHORT`/`DEFAULT`/`LONG`.
+- Cache de leitura via `@cache` nos reads de **5 serviços** (Role, Permission, Client, Contract, User); helpers `invalidate_cache`/`invalidate_all_cache` acionados em **create/update/delete**.
+- Permissão `CACHE_MANAGE` (migração **`0010`**, concedida ao ADMIN) e router `/api/v1/cache` (`GET /stats`, `POST /clear`) sob a tag `Cache`, protegido por `require_permission("CACHE_MANAGE")`.
+
+### Alterado
+- `main.py` passa a usar `lifespan` (inicializa o cache no startup); `requires-python` limitado a `>=3.12,<4.0` (resolução do `fastapi-cache2`); _overrides_ de mypy para `redis.*` (sem stubs) e para o `[return-value]` da camada de routers (o `@cache` tipa o retorno como `T | Response`).
+
+### Notas
+- O cache é um **acelerador best-effort**: os serviços permanecem corretos sem ele. Nesta fase os erros de cache **propagam** (não há _fail-open_) — o Redis do compose é a dependência de runtime dos caminhos cacheados.
+- No Windows/Docker Desktop, o Redis **conecta do host** (diferente do Postgres); o E2E do cache roda no container da rede do compose.
 
 ---
 

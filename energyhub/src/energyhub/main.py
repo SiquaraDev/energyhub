@@ -1,10 +1,11 @@
 """Ponto de entrada da aplicação FastAPI do EnergyHub.
 
-Além de montar routers e middlewares, esta Fase (8) customiza o documento OpenAPI: metadados
-(contato/licença), esquema de segurança `bearerAuth` (JWT) e agrupamento por tags, e padroniza os
-corpos de erro (`ErrorResponse`/`ValidationErrorResponse`) via handlers globais.
+Monta routers, middlewares e handlers de erro; customiza o documento OpenAPI (metadados, esquema
+`bearerAuth`, tags) da Fase 8; e inicializa o cache Redis (fastapi-cache2) no `lifespan` da Fase 9.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
@@ -30,6 +31,7 @@ from energyhub.negotiations.presentation.router.negotiation_router import Negoti
 from energyhub.notifications.presentation.router.notification_router import NotificationRouter
 from energyhub.reports.presentation.router.report_router import ReportRouter
 from energyhub.shared.domain.exception.domain_exception import DomainException
+from energyhub.shared.infrastructure.cache.cache_config import CacheConfig
 from energyhub.shared.infrastructure.persistence.mapping import configure_mappings
 from energyhub.shared.presentation.exception.domain_exception_handler import (
     domain_exception_handler,
@@ -40,6 +42,7 @@ from energyhub.shared.presentation.exception.global_exception_handler import (
 from energyhub.shared.presentation.exception.request_validation_exception_handler import (
     request_validation_exception_handler,
 )
+from energyhub.shared.presentation.router.cache_router import CacheRouter
 
 # Registra e resolve os mappers ORM (Fase 5) no import da app, de modo que qualquer
 # erro de mapeamento/relacionamento apareça imediatamente no startup.
@@ -58,14 +61,28 @@ _OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "Audit", "description": "Trilha de auditoria (append-only)."},
     {"name": "Notifications", "description": "Notificações do sistema."},
     {"name": "Reports", "description": "Relatórios do negócio."},
+    {"name": "Cache", "description": "Administração do cache (estatísticas e limpeza)."},
     {"name": "Health", "description": "Verificações de disponibilidade (raiz e health check)."},
 ]
 
 # Rotas públicas — não exigem token; a segurança global do OpenAPI é neutralizada nelas.
 _PUBLIC_PATHS = {"/", "/health", "/api/v1/auth/login"}
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Ciclo de vida da app: inicializa o cache Redis (fastapi-cache2) no startup.
+
+    A conexão do `redis.asyncio.from_url` é preguiçosa — o startup não falha se o Redis estiver
+    indisponível; o backend conecta na primeira operação de cache.
+    """
+    CacheConfig.init_cache()
+    yield
+
+
 app = FastAPI(
     title="EnergyHub API",
+    lifespan=lifespan,
     description=(
         "Plataforma de negociação de energia — API REST (Clean Architecture · DDD).\n\n"
         "**Autenticação:** obtenha um token em `POST /api/v1/auth/login` e envie-o como "
@@ -115,6 +132,9 @@ app.include_router(FinancialRouter().get_router())
 app.include_router(AuditLogRouter().get_router())
 app.include_router(NotificationRouter().get_router())
 app.include_router(ReportRouter().get_router())
+
+# Router de administração do cache (Fase 9) — protegido por CACHE_MANAGE.
+app.include_router(CacheRouter().get_router())
 
 
 def custom_openapi() -> dict[str, Any]:

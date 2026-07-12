@@ -6,7 +6,7 @@ authors = [
     {name = "SiquaraDev",email = "matheus.siquara99@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "fastapi (>=0.139.0,<0.140.0)",
     "uvicorn[standard] (>=0.50.0,<0.51.0)",
@@ -18,7 +18,10 @@ dependencies = [
     "python-jose[cryptography] (>=3.5.0,<4.0.0)",
     "passlib[bcrypt] (>=1.7.4,<2.0.0)",
     "bcrypt (>=4.1.0,<5.0.0)",
-    "python-multipart (>=0.0.32,<0.0.33)"
+    "python-multipart (>=0.0.32,<0.0.33)",
+    "redis (>=4.6.0,<5.0.0)",
+    "fastapi-cache2[redis] (>=0.2.0,<0.3.0)",
+    "jinja2 (>=3.1.0,<4.0.0)"
 ]
 
 [tool.poetry]
@@ -69,6 +72,19 @@ disable_error_code = ["misc", "arg-type", "return-value", "attr-defined", "no-an
 [[tool.mypy.overrides]]
 module = ["jose.*"]
 ignore_missing_imports = true
+
+# `redis` (redis-py 4.6) não expõe stubs reconhecidos pelo mypy (import-untyped).
+[[tool.mypy.overrides]]
+module = ["redis.*"]
+ignore_missing_imports = true
+
+# Cache (Fase 9): o decorador `@cache` do fastapi-cache2 tipa o retorno como `T | Response` (para
+# uso em endpoints). Nos métodos de serviço decorados isso vaza para os routers finos, que apenas
+# repassam o resultado (validado pelo `response_model` do FastAPI). Silenciado APENAS o
+# [return-value] na camada de routers; o restante segue sob mypy estrito.
+[[tool.mypy.overrides]]
+module = "energyhub.*.presentation.router.*"
+disable_error_code = ["return-value"]
 
 [tool.ruff]
 line-length = 100

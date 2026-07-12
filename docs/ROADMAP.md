@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 8
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.8.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 9 — Camada de Cache com Redis**.
-> As **Fases 9–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 9
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.9.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 10 — Mensageria Assíncrona (RabbitMQ &
+> Kafka)**. As **Fases 10–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -227,13 +227,23 @@ do plano). Verificado: **ruff/black/mypy (397) limpos** + **E2E** (404 `ErrorRes
 
 ## ⚙️ Etapa 4 — Escala & Operação
 
-### 📋 Fase 9 — Camada de Cache com Redis · `0.9.0`
+### ✅ Fase 9 — Camada de Cache com Redis · `0.9.0` _(concluída)_
 **Objetivo:** reduzir carga no banco e latência com um _read-cache_ Redis e invalidação explícita na escrita.
 
 **Entregáveis:**
 - `redis-cache-infrastructure` (serviço `redis:7-alpine` + _settings_) · `cache-backend-configuration` (`fastapi-cache2`)
 - `query-result-caching` — `@cache` com _namespaces_ por domínio e TTLs escalonados
 - `cache-invalidation` — evicção em create/update/delete · `cache-administration` (rota `/api/v1/cache`, permissão `CACHE_MANAGE`)
+
+_Como implementado:_ serviço **`redis:7-alpine`** (append-only + volume + healthcheck) no compose; deps
+`redis ^4.6` (o `fastapi-cache2` fixa `redis<5`) + `jinja2`. `CacheConfig.init_cache()` (RedisBackend +
+prefixo `energyhub` + **PickleCoder** p/ round-trip de DTOs Pydantic) no **lifespan** da app; `CacheConstants`
+(namespaces + TTLs SHORT/DEFAULT/LONG). **`@cache`** nos reads de **5 serviços** (Role/Permission/Client/
+Contract/User) com _key builders_ que ignoram o `self`; `invalidate_cache`/`invalidate_all_cache` em todo
+create/update/delete. Router `/api/v1/cache` (`/stats`, `/clear`) protegido por **`CACHE_MANAGE`** (migração
+**0010** concede ao ADMIN). Verificado: **ruff/black/mypy (401) limpos** + **E2E** (miss→popula, hit→serve do
+cache, create→invalida namespace, 403/401 no gating) contra Postgres+Redis do Docker. Nota Windows: o Redis
+**conecta do host** (ao contrário do Postgres).
 
 ### 📋 Fase 10 — Camada de Mensageria Assíncrona (RabbitMQ & Kafka) · `0.10.0`
 **Objetivo:** desacoplar módulos com comunicação orientada a eventos — RabbitMQ para _workflows_ confiáveis por entidade e Kafka para _streams_ de alto volume.

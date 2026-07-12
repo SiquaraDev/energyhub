@@ -66,6 +66,9 @@ REPORT_READ = "REPORT_READ"
 REPORT_UPDATE = "REPORT_UPDATE"
 REPORT_DELETE = "REPORT_DELETE"
 
+# --- Administração de cache (Fase 9) ---
+CACHE_MANAGE = "CACHE_MANAGE"
+
 # Catálogo completo (name, description) — espelha a migração 0009. Útil para introspecção/testes.
 PERMISSION_CATALOG: list[tuple[str, str]] = [
     (USER_CREATE, "Criar usuários"),
@@ -106,4 +109,5 @@ PERMISSION_CATALOG: list[tuple[str, str]] = [
     (REPORT_READ, "Ler relatórios"),
     (REPORT_UPDATE, "Atualizar relatórios"),
     (REPORT_DELETE, "Remover relatórios"),
+    (CACHE_MANAGE, "Gerenciar o cache (estatísticas e limpeza)"),
 ]

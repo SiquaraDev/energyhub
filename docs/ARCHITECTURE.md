@@ -1,16 +1,16 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–8)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–9)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 8 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
-Persistência, API REST, Segurança (JWT/RBAC) e Documentação/Erros da API** (versão `0.8.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 9 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API e Cache Redis** (versão `0.9.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
 enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic** da Fase 4, a **camada de
 persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, serviços, use cases e
 routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, RBAC por permissão) da
-Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, suas
-**assinaturas reais** e como estendê-las nas próximas fases.
+Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, o **cache Redis**
+(fastapi-cache2 + invalidação) da Fase 9, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -733,7 +733,56 @@ sobrescreve com um código estável (`CLIENT_NOT_FOUND`, `INVALID_CNPJ`, …). O
 
 ---
 
-## 🚀 14. Como adicionar uma nova entidade/módulo (próximas fases)
+## ⚡ 14. Cache de Leitura (Redis · Fase 9)
+
+A **Fase 9** (versão `0.9.0`) adicionou um **read-cache** Redis via `fastapi-cache2`, servindo leituras
+repetidas da memória e invalidando entradas em cada escrita. O cache é um **acelerador**: os serviços
+permanecem corretos sem ele.
+
+### 14.1 🧱 As peças
+
+| Peça | Local | Papel |
+| :--- | :---- | :---- |
+| Serviço Redis | `docker-compose.yml` | `redis:7-alpine` (append-only, volume `redis_data`, healthcheck `redis-cli ping`). |
+| Settings | `config/settings.py` | `redis_host`/`redis_port`/`redis_db`/`redis_password` + `redis_url` (propriedade derivada). |
+| `CacheConfig` | `shared/infrastructure/cache/cache_config.py` | `init_cache()` (RedisBackend + prefixo `energyhub` + **PickleCoder**) chamado no **lifespan**; `get_cache_key()` + key builders (`id_key_builder`, `page_key_builder`). |
+| `CacheConstants` | `shared/constant/cache_constants.py` | Namespaces por domínio + TTLs `SHORT`/`DEFAULT`/`LONG`. |
+| Invalidação | `shared/infrastructure/cache/cache_helper.py` | `invalidate_cache(namespace, key?)` e `invalidate_all_cache()`. |
+| `CacheRouter` | `shared/presentation/router/cache_router.py` | `/api/v1/cache` (`GET /stats`, `POST /clear`) sob `CACHE_MANAGE`. |
+
+### 14.2 🔑 Padrão de cache nos serviços
+
+Os métodos de **leitura** dos serviços (Role, Permission, Client, Contract, User) são decorados:
+
+```python
+@cache(namespace=CacheConstants.ROLES, expire=CacheConstants.LONG_TTL, key_builder=id_key_builder)
+async def find_by_id(self, role_id: UUID) -> RoleResponseDTO: ...
+```
+
+- **`PickleCoder`** (default do `init_cache`) faz o *round-trip* fiel dos **DTOs Pydantic** (a leitura
+  cacheada devolve o mesmo tipo, não um `dict`).
+- Os **key builders ignoram o `self`** do serviço (`args[1:]`), produzindo chaves estáveis como
+  `energyhub:roles:{id}` e `energyhub:roles:all:{page}:{size}:{sort}:{direction}`.
+- **TTL por volatilidade:** dados de referência (papéis/permissões) usam `LONG_TTL`; clientes, `SHORT_TTL`.
+
+### 14.3 ♻️ Invalidação na escrita
+
+Todo `create`/`update`/`delete` chama `await invalidate_cache(CacheConstants.<NS>)` após o `save`/`delete`
+do repositório, evictando o namespace do domínio — a próxima leitura repopula com dado fresco. O
+`invalidate_all_cache()` (usado no `POST /clear`) remove todas as chaves `energyhub:*`.
+
+### 14.4 ⚠️ Notas e limitações
+
+- **Best-effort, mas requerido:** nesta fase os erros de cache **propagam** (sem *fail-open*); o Redis do
+  compose é dependência de runtime dos caminhos cacheados. *Fail-open* fica como evolução.
+- **Tipos:** o `@cache` tipa o retorno como `T | Response` (uso em endpoints); nos routers finos isso é
+  silenciado por um _override_ de mypy `[return-value]` (o `response_model` valida a saída real).
+- **Deps:** `fastapi-cache2` fixa `redis<5` (usamos `redis ^4.6`) e importa `starlette.templating`
+  (exige `jinja2`). No Windows, o Redis **conecta do host** (ao contrário do Postgres).
+
+---
+
+## 🚀 15. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -768,7 +817,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 15. Referências
+## 📚 16. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

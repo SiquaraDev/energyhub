@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from fastapi_cache.decorator import cache
+
 from energyhub.auth.application.dto.user_request_dto import UserRequestDTO
 from energyhub.auth.application.dto.user_response_dto import UserResponseDTO
 from energyhub.auth.application.mapper.user_mapper import UserMapper
@@ -17,6 +19,9 @@ from energyhub.auth.infrastructure.persistence.role_repository import RoleReposi
 from energyhub.auth.infrastructure.persistence.user_repository import UserRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
+from energyhub.shared.constant.cache_constants import CacheConstants
+from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
+from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
 from energyhub.shared.infrastructure.security.password_hasher import hash_password
 
 
@@ -56,14 +61,25 @@ class UserService:
         for role in await self._resolve_roles(dto.role_ids):
             user.roles.append(role)
         saved = await self._users.save(user)
+        await invalidate_cache(CacheConstants.USERS)
         return self._mapper.to_response_dto(saved)
 
+    @cache(
+        namespace=CacheConstants.USERS,
+        expire=CacheConstants.DEFAULT_TTL,
+        key_builder=id_key_builder,
+    )
     async def find_by_id(self, user_id: UUID) -> UserResponseDTO:
         entity = await self._users.find_by_id(user_id)
         if entity is None:
             raise UserNotFoundException(f"Usuário {user_id} não encontrado")
         return self._mapper.to_response_dto(entity)
 
+    @cache(
+        namespace=CacheConstants.USERS,
+        expire=CacheConstants.DEFAULT_TTL,
+        key_builder=page_key_builder,
+    )
     async def find_all(self, page_request: PageRequest) -> PageResponse[UserResponseDTO]:
         content, total = await self._users.find_page(
             page_request.get_offset(), page_request.get_limit()
@@ -81,9 +97,11 @@ class UserService:
         user.roles = await self._resolve_roles(dto.role_ids)
         user.update_timestamp()
         saved = await self._users.save(user)
+        await invalidate_cache(CacheConstants.USERS)
         return self._mapper.to_response_dto(saved)
 
     async def delete(self, user_id: UUID) -> None:
         if not await self._users.exists_by_id(user_id):
             raise UserNotFoundException(f"Usuário {user_id} não encontrado")
         await self._users.delete_by_id(user_id)
+        await invalidate_cache(CacheConstants.USERS)

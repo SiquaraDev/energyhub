@@ -52,16 +52,17 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 8 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 9 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
 > no ar (**10 routers / 25 endpoints** `/api/v1/...`, CRUD + listagem paginada + sub-recursos), a
 > **segurança** protege a API (**login JWT**, `get_current_user`, **RBAC por permissão** — **401**/**403**),
-> e a API é **auto-descritiva**: **OpenAPI curado** (metadados, esquema `bearerAuth`, tags), endpoints
-> e DTOs documentados com exemplos, **erros padronizados** (`ErrorResponse`/`ValidationErrorResponse`
-> + `error_code`) e guias [`docs/API_ERRORS.md`](docs/API_ERRORS.md)/[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md).
-> **Próxima: Fase 9** (camada de cache com Redis). Consulte o
+> a API é **auto-descritiva** (**OpenAPI curado**, DTOs com exemplos, **erros padronizados** +
+> `error_code`, guias [`docs/API_ERRORS.md`](docs/API_ERRORS.md)/[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)),
+> e há um **cache Redis** de leitura (`fastapi-cache2`) com invalidação na escrita e um router
+> `/api/v1/cache` protegido por `CACHE_MANAGE`.
+> **Próxima: Fase 10** (mensageria assíncrona — RabbitMQ & Kafka). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---
@@ -267,10 +268,11 @@ git clone https://github.com/Matheus-Siquara/energyhub.git
 cd energyhub
 ```
 
-### 2. Subir a infraestrutura (PostgreSQL)
+### 2. Subir a infraestrutura (PostgreSQL + Redis)
 
 ```bash
-docker compose up -d
+docker compose up -d          # PostgreSQL 16 + Redis 7 (cache)
+docker exec energyhub-redis redis-cli ping   # PONG
 ```
 
 ### 3. Instalar dependências e rodar a aplicação
@@ -290,12 +292,12 @@ curl http://localhost:8000/           # {"message": "EnergyHub API"}
 curl http://localhost:8000/health     # {"status": "healthy"}
 ```
 
-### 4. Migrações do banco _(Fases 4 e 7 ✅)_
+### 4. Migrações do banco _(Fases 4, 7 e 9 ✅)_
 
 ```bash
 cd energyhub
-poetry run alembic upgrade head       # aplica as 9 migrações (15 tabelas + índices + constraints + seed + catálogo de permissões)
-poetry run alembic current            # revisão atual (head = 0009)
+poetry run alembic upgrade head       # aplica as 10 migrações (15 tabelas + índices + constraints + seed + permissões)
+poetry run alembic current            # revisão atual (head = 0010)
 poetry run alembic downgrade base     # reverte tudo
 ```
 
