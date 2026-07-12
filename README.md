@@ -249,8 +249,8 @@ poetry run uvicorn energyhub.main:app --reload
 A API sobe em **http://localhost:8000**:
 
 ```bash
-curl http://localhost:8000/           # {"message": "EnergyHub API está rodando 🚀"}
-curl http://localhost:8000/health     # {"status": "ok"}
+curl http://localhost:8000/           # {"message": "EnergyHub API"}
+curl http://localhost:8000/health     # {"status": "healthy"}
 ```
 
 ### 4. Migrações do banco _(a partir da Fase 4)_
