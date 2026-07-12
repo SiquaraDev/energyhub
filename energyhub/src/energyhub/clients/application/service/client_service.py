@@ -13,21 +13,33 @@ from energyhub.clients.domain.exception.client_already_exists_exception import (
     ClientAlreadyExistsException,
 )
 from energyhub.clients.domain.exception.client_not_found_exception import ClientNotFoundException
+from energyhub.clients.infrastructure.messaging.client_event_producer import ClientEventProducer
 from energyhub.clients.infrastructure.persistence.client_repository import ClientRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
 
 
 class ClientService:
     """CRUD de clientes com checagens de existência/unicidade. Faz `flush` via repositório;
-    o `commit` fica com a sessão por requisição (`get_session`)."""
+    o `commit` fica com a sessão por requisição (`get_session`).
 
-    def __init__(self, repository: ClientRepository, mapper: ClientMapper | None = None) -> None:
+    Após cada escrita persistida publica o evento de cliente (RabbitMQ) como efeito colateral
+    não-bloqueante — uma falha de broker é logada, não desfaz a escrita.
+    """
+
+    def __init__(
+        self,
+        repository: ClientRepository,
+        mapper: ClientMapper | None = None,
+        event_producer: ClientEventProducer | None = None,
+    ) -> None:
         self._repository = repository
         self._mapper = mapper or ClientMapper()
+        self._producer = event_producer
 
     async def create(self, dto: ClientRequestDTO) -> ClientResponseDTO:
         if await self._repository.exists_by_cnpj(dto.cnpj):
@@ -35,7 +47,12 @@ class ClientService:
         entity = self._mapper.to_entity(dto)
         saved = await self._repository.save(entity)
         await invalidate_cache(CacheConstants.CLIENTS)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        if self._producer is not None:
+            await publish_safely(
+                self._producer.publish_client_created(response), event="client.created"
+            )
+        return response
 
     @cache(
         namespace=CacheConstants.CLIENTS,
@@ -76,7 +93,12 @@ class ClientService:
         entity.update_timestamp()
         saved = await self._repository.save(entity)
         await invalidate_cache(CacheConstants.CLIENTS)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        if self._producer is not None:
+            await publish_safely(
+                self._producer.publish_client_updated(response), event="client.updated"
+            )
+        return response
 
     async def delete(self, client_id: UUID) -> None:
         if not await self._repository.exists_by_id(client_id):

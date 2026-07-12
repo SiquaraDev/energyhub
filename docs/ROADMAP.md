@@ -21,10 +21,10 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 9
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.9.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 10 — Mensageria Assíncrona (RabbitMQ &
-> Kafka)**. As **Fases 10–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 10
+> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.10.0`); a implementação seguiu o
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 11 — Subsistema de Busca
+> (Elasticsearch)**. As **Fases 11–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
@@ -245,13 +245,27 @@ create/update/delete. Router `/api/v1/cache` (`/stats`, `/clear`) protegido por 
 cache, create→invalida namespace, 403/401 no gating) contra Postgres+Redis do Docker. Nota Windows: o Redis
 **conecta do host** (ao contrário do Postgres).
 
-### 📋 Fase 10 — Camada de Mensageria Assíncrona (RabbitMQ & Kafka) · `0.10.0`
+### ✅ Fase 10 — Camada de Mensageria Assíncrona (RabbitMQ & Kafka) · `0.10.0` _(concluída)_
 **Objetivo:** desacoplar módulos com comunicação orientada a eventos — RabbitMQ para _workflows_ confiáveis por entidade e Kafka para _streams_ de alto volume.
 
 **Entregáveis:**
 - `rabbitmq-messaging-infrastructure` (aio-pika) · `domain-event-producers` · `async-event-consumers` (`NotificationConsumer`, `AuditConsumer`)
 - `kafka-streaming-infrastructure` (aiokafka + Zookeeper) · `kafka-event-streaming`
 - `message-delivery-reliability` — entrega _at-least-once_, mensagens duráveis, `MessagePublishingException`
+
+_Como implementado:_ brokers **RabbitMQ** (`3-management-alpine`, healthcheck + volume) e **Kafka + Zookeeper**
+(`cp-*:7.6.1`, dois _listeners_ — `localhost:9092` host / `kafka:29092` rede — e `auto-create` off) no compose;
+deps `aio-pika ^9.4` + `aiokafka ^0.11` e settings `rabbitmq_url`/`kafka_bootstrap_servers`/`kafka_group_id`.
+`RabbitMQConfig` (**11 filas** duráveis) + `setup_queues()` idempotente; `EventProducer` base (conexão robusta,
+`DeliveryMode.PERSISTENT`) + `UserEventProducer`/`ClientEventProducer`; consumidores `NotificationConsumer` e
+`AuditConsumer` (**`prefetch_count=1`**, ack pós-processo) + contrato `AuditEvent`. `KafkaConfig` (**4 tópicos**,
+financeiro com 6 partições, `create_topics` idempotente) + `KafkaEventProducer` (keyed `send_and_wait`) /
+`KafkaEventConsumer` (`stop` no `finally`). Publicação **pós-commit** não-bloqueante nos serviços (User/Client →
+RabbitMQ, Contract/Invoice → Kafka) via `publish_safely`; topologia preparada no **lifespan**. Verificado:
+**ruff/black/mypy (413) limpos** + **E2E** contra os brokers reais — create real → fila, `AuditConsumer` grava
+`AuditLog` (Postgres), Kafka mesma-chave→mesma-partição+ordem, **durabilidade** no restart, **redelivery** em
+handler falho, e falha de publicação → `MessagePublishingException` sem desfazer a escrita. Nota Windows:
+**RabbitMQ e Kafka conectam do host** (só o E2E que grava no banco roda no container da rede do compose).
 
 ### 📋 Fase 11 — Subsistema de Busca com Elasticsearch · `0.11.0`
 **Objetivo:** oferecer busca _full-text_ com ranqueamento por relevância, tolerância a erros e filtros compostos sobre clientes e contratos.

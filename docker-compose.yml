@@ -32,6 +32,62 @@ services:
       timeout: 5s
       retries: 5
 
+  # Mensageria — RabbitMQ (workflows por entidade, roteamento e ack manual) — Fase 10.
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: energyhub-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: energyhub
+      RABBITMQ_DEFAULT_PASS: energyhub123
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # UI de gerenciamento
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mensageria — Zookeeper (coordenação do broker Kafka) — Fase 10.
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: energyhub-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # Mensageria — Kafka (streams de alto volume, partições e consumer groups) — Fase 10.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: energyhub-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Dois listeners: interno (kafka:29092, para clientes na rede do compose) e host
+      # (localhost:9092, para clientes na máquina hospedeira).
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
+  rabbitmq_data:

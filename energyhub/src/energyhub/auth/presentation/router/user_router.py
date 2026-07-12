@@ -11,6 +11,7 @@ from energyhub.auth.application.dto.user_request_dto import UserRequestDTO
 from energyhub.auth.application.dto.user_response_dto import UserResponseDTO
 from energyhub.auth.application.service.user_service import UserService
 from energyhub.auth.application.usecase.create_user_use_case import CreateUserUseCase
+from energyhub.auth.infrastructure.messaging.user_event_producer import user_event_producer
 from energyhub.auth.infrastructure.persistence.role_repository import RoleRepository
 from energyhub.auth.infrastructure.persistence.user_repository import UserRepository
 from energyhub.auth.infrastructure.security.current_user import get_current_user
@@ -39,8 +40,10 @@ from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
 def get_user_service(session: AsyncSession = Depends(get_session)) -> UserService:
-    """Provedor do `UserService` por requisição."""
-    return UserService(UserRepository(session), RoleRepository(session))
+    """Provedor do `UserService` por requisição (com o produtor de eventos compartilhado)."""
+    return UserService(
+        UserRepository(session), RoleRepository(session), event_producer=user_event_producer
+    )
 
 
 def get_create_user_use_case(

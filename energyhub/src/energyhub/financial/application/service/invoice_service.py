@@ -16,15 +16,41 @@ from energyhub.financial.domain.exception.invoice_not_found_exception import (
 from energyhub.financial.infrastructure.persistence.invoice_repository import InvoiceRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
+from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
+from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
 
 
 class InvoiceService:
     """CRUD de faturas com checagem de unicidade do número. Faz `flush` via repositório;
-    o `commit` fica com a sessão por requisição (`get_session`)."""
+    o `commit` fica com a sessão por requisição (`get_session`).
 
-    def __init__(self, repository: InvoiceRepository, mapper: InvoiceMapper | None = None) -> None:
+    Faturas alimentam um stream de alto volume: após cada escrita, publica no tópico Kafka
+    `financial-events` sob a chave = id da fatura (mesma chave → mesma partição), como efeito
+    colateral não-bloqueante.
+    """
+
+    def __init__(
+        self,
+        repository: InvoiceRepository,
+        mapper: InvoiceMapper | None = None,
+        kafka_producer: KafkaEventProducer | None = None,
+    ) -> None:
         self._repository = repository
         self._mapper = mapper or InvoiceMapper()
+        self._kafka = kafka_producer
+
+    async def _publish_event(self, response: InvoiceResponseDTO) -> None:
+        """Publica a fatura no tópico `financial-events` (chave = id), se houver produtor."""
+        if self._kafka is not None:
+            await publish_safely(
+                self._kafka.publish(
+                    KafkaConfig.FINANCIAL_EVENTS,
+                    str(response.id),
+                    response.model_dump(mode="json"),
+                ),
+                event=KafkaConfig.FINANCIAL_EVENTS,
+            )
 
     async def create(self, dto: InvoiceRequestDTO) -> InvoiceResponseDTO:
         if await self._repository.exists_by_invoice_number(dto.invoice_number):
@@ -33,7 +59,9 @@ class InvoiceService:
             )
         entity = self._mapper.to_entity(dto)
         saved = await self._repository.save(entity)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        await self._publish_event(response)
+        return response
 
     async def find_by_id(self, invoice_id: UUID) -> InvoiceResponseDTO:
         entity = await self._repository.find_by_id(invoice_id)
@@ -57,7 +85,9 @@ class InvoiceService:
         entity.status = dto.status
         entity.update_timestamp()
         saved = await self._repository.save(entity)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        await self._publish_event(response)
+        return response
 
     async def delete(self, invoice_id: UUID) -> None:
         if not await self._repository.exists_by_id(invoice_id):

@@ -1,9 +1,11 @@
 """Ponto de entrada da aplicação FastAPI do EnergyHub.
 
 Monta routers, middlewares e handlers de erro; customiza o documento OpenAPI (metadados, esquema
-`bearerAuth`, tags) da Fase 8; e inicializa o cache Redis (fastapi-cache2) no `lifespan` da Fase 9.
+`bearerAuth`, tags) da Fase 8; inicializa o cache Redis (fastapi-cache2) no `lifespan` da Fase 9;
+e prepara a mensageria (topologia de filas/tópicos + encerramento dos produtores) da Fase 10.
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -17,6 +19,7 @@ from energyhub.audit.presentation.router.audit_log_router import AuditLogRouter
 from energyhub.auth.domain.exception.invalid_credentials_exception import (
     InvalidCredentialsException,
 )
+from energyhub.auth.infrastructure.messaging.user_event_producer import user_event_producer
 from energyhub.auth.presentation.exception.invalid_credentials_exception_handler import (
     invalid_credentials_exception_handler,
 )
@@ -24,6 +27,7 @@ from energyhub.auth.presentation.router.auth_router import AuthRouter
 from energyhub.auth.presentation.router.permission_router import PermissionRouter
 from energyhub.auth.presentation.router.role_router import RoleRouter
 from energyhub.auth.presentation.router.user_router import UserRouter
+from energyhub.clients.infrastructure.messaging.client_event_producer import client_event_producer
 from energyhub.clients.presentation.router.client_router import ClientRouter
 from energyhub.contracts.presentation.router.contract_router import ContractRouter
 from energyhub.financial.presentation.router.financial_router import FinancialRouter
@@ -32,6 +36,9 @@ from energyhub.notifications.presentation.router.notification_router import Noti
 from energyhub.reports.presentation.router.report_router import ReportRouter
 from energyhub.shared.domain.exception.domain_exception import DomainException
 from energyhub.shared.infrastructure.cache.cache_config import CacheConfig
+from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
+from energyhub.shared.infrastructure.messaging.kafka_event_producer import kafka_event_producer
+from energyhub.shared.infrastructure.messaging.rabbitmq_config import setup_queues
 from energyhub.shared.infrastructure.persistence.mapping import configure_mappings
 from energyhub.shared.presentation.exception.domain_exception_handler import (
     domain_exception_handler,
@@ -43,6 +50,8 @@ from energyhub.shared.presentation.exception.request_validation_exception_handle
     request_validation_exception_handler,
 )
 from energyhub.shared.presentation.router.cache_router import CacheRouter
+
+logger = logging.getLogger(__name__)
 
 # Registra e resolve os mappers ORM (Fase 5) no import da app, de modo que qualquer
 # erro de mapeamento/relacionamento apareça imediatamente no startup.
@@ -71,13 +80,34 @@ _PUBLIC_PATHS = {"/", "/health", "/api/v1/auth/login"}
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Ciclo de vida da app: inicializa o cache Redis (fastapi-cache2) no startup.
+    """Ciclo de vida da app: cache (Fase 9) + topologia/produtores de mensageria (Fase 10).
 
-    A conexão do `redis.asyncio.from_url` é preguiçosa — o startup não falha se o Redis estiver
-    indisponível; o backend conecta na primeira operação de cache.
+    - **Startup:** inicializa o cache Redis (conexão preguiçosa) e declara, de forma idempotente,
+      as filas RabbitMQ e os tópicos Kafka. A preparação da mensageria é *best-effort*: se um broker
+      estiver indisponível, apenas registra um aviso e **não** derruba o startup.
+    - **Shutdown:** encerra as conexões dos produtores compartilhados.
     """
     CacheConfig.init_cache()
+    try:
+        await setup_queues()
+    except Exception as error:  # broker indisponível não deve impedir o startup
+        logger.warning("Topologia RabbitMQ não preparada (broker indisponível?): %s", error)
+    try:
+        await KafkaConfig.create_topics()
+    except Exception as error:  # broker indisponível não deve impedir o startup
+        logger.warning("Tópicos Kafka não preparados (broker indisponível?): %s", error)
+
     yield
+
+    for closer, name in (
+        (user_event_producer.disconnect(), "UserEventProducer"),
+        (client_event_producer.disconnect(), "ClientEventProducer"),
+        (kafka_event_producer.stop(), "KafkaEventProducer"),
+    ):
+        try:
+            await closer
+        except Exception as error:  # encerramento best-effort
+            logger.warning("Falha ao encerrar %s: %s", name, error)
 
 
 app = FastAPI(

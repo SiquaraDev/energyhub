@@ -15,6 +15,7 @@ from energyhub.clients.application.dto.contact_response_dto import ContactRespon
 from energyhub.clients.application.service.client_service import ClientService
 from energyhub.clients.application.service.contact_service import ContactService
 from energyhub.clients.application.usecase.create_client_use_case import CreateClientUseCase
+from energyhub.clients.infrastructure.messaging.client_event_producer import client_event_producer
 from energyhub.clients.infrastructure.persistence.client_repository import ClientRepository
 from energyhub.clients.infrastructure.persistence.contact_repository import ContactRepository
 from energyhub.shared.application.dto.page_request import PageRequest
@@ -42,8 +43,8 @@ from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
 def get_client_service(session: AsyncSession = Depends(get_session)) -> ClientService:
-    """Provedor do `ClientService` por requisição (repositório sobre a sessão)."""
-    return ClientService(ClientRepository(session))
+    """Provedor do `ClientService` por requisição (com o produtor de eventos compartilhado)."""
+    return ClientService(ClientRepository(session), event_producer=client_event_producer)
 
 
 def get_create_client_use_case(

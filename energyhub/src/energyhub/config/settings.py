@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str | None = None
 
+    # Mensageria — Fase 10. RabbitMQ (workflows por entidade) + Kafka (streams de alto volume).
+    rabbitmq_url: str = "amqp://energyhub:energyhub123@localhost:5672/"
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_group_id: str = "energyhub"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property

@@ -9,8 +9,8 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–9** (`0.0.0` → `0.9.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.10.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
+> As **Fases 0–10** (`0.0.0` → `0.10.0`) já foram **✅ implementadas e validadas**; as
+> versões **`0.11.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
 > até serem implementadas e validadas.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **63 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **69 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -33,6 +33,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Segurança JWT/RBAC (Fase 7):** login (`POST /api/v1/auth/login`) + `JwtService` (HS256), `get_current_user`/`UserDetails` e guards `require_permission`/`require_role`; **10 routers protegidos** (54 guards por endpoint), catálogo de permissões (`shared/constant/permissions.py`) e migração `0009` que semeia **38 permissões** e concede todas ao `ADMIN`. Sem token → 401; sem permissão → 403.
 - **Documentação da API (Fase 8):** OpenAPI curado (`custom_openapi()` com contato/licença, esquema `bearerAuth` JWT, 12 tags), endpoints e DTOs documentados com exemplos, erros padronizados (`ErrorResponse`/`ValidationErrorResponse` + `error_code`) e guias `docs/API_ERRORS.md` / `docs/API_EXAMPLES.md`.
 - **Cache Redis (Fase 9):** serviço `redis:7-alpine` no compose, `CacheConfig`/`CacheConstants`, `@cache` nos reads de 5 serviços (namespaces + TTLs), invalidação em create/update/delete, e router `/api/v1/cache` (`/stats`, `/clear`) protegido por `CACHE_MANAGE` (migração `0010`).
+- **Mensageria assíncrona (Fase 10):** brokers **RabbitMQ** (workflows) e **Kafka** + Zookeeper (streams) no compose; `RabbitMQConfig`/`setup_queues` (11 filas duráveis) e `KafkaConfig`/`create_topics` (4 tópicos); `EventProducer` base + `UserEventProducer`/`ClientEventProducer` (RabbitMQ) e `KafkaEventProducer`/`KafkaEventConsumer` (JSON com chave); consumidores `NotificationConsumer` e `AuditConsumer` (ack manual, `prefetch_count=1`); publicação pós-commit nos serviços (não-bloqueante) e `MessagePublishingException`.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -144,16 +145,30 @@ Subsistema de busca _full-text_ com relevância, tolerância a erros e filtros c
 
 ---
 
-## [0.10.0] — 🔮 Planejado · _Fase 10 · Mensageria (RabbitMQ & Kafka)_
+## [0.10.0] — 2026-07-12 · ✅ Lançado · _Fase 10 · Mensageria (RabbitMQ & Kafka)_
 
-Comunicação orientada a eventos entre módulos, fora do caminho da requisição.
+Comunicação orientada a eventos entre módulos, **fora do caminho da requisição** — RabbitMQ para
+workflows por entidade, Kafka para streams de alto volume. A mensageria é um efeito colateral
+pós-commit: os serviços permanecem corretos sem os brokers.
 
 ### Adicionado
-- Broker **RabbitMQ** (UI de gerência, _healthcheck_, volume) + `aio-pika` e `RabbitMQConfig` com declaração idempotente de filas duráveis.
-- `EventProducer` genérico e _producers_ por módulo publicando eventos após mudanças de estado bem-sucedidas.
-- Consumidores assíncronos: `NotificationConsumer` e `AuditConsumer` (ack manual, `prefetch_count=1`).
-- **Kafka** + Zookeeper + `aiokafka`, com criação idempotente de _topics_ e `KafkaEventProducer`/`KafkaEventConsumer` (JSON com chave, _consumer groups_).
-- Garantias de entrega _at-least-once_, mensagens duráveis/persistentes e `MessagePublishingException` para falhas de publicação isoladas da transação.
+- Broker **RabbitMQ** (`rabbitmq:3-management-alpine`, portas 5672/15672, _healthcheck_ `rabbitmq-diagnostics ping`, volume `rabbitmq_data`) + **Kafka** e **Zookeeper** (`confluentinc/cp-*:7.6.1`, dois _listeners_ — `localhost:9092` p/ host e `kafka:29092` p/ a rede — e `auto-create` desligado) no `docker-compose.yml`; dependências `aio-pika (^9.4)` e `aiokafka (^0.11)`.
+- Settings de mensageria (`rabbitmq_url`, `kafka_bootstrap_servers`, `kafka_group_id`) em `energyhub.config.settings`.
+- `RabbitMQConfig` (`shared/infrastructure/messaging/`): constantes de **11 filas** por evento (user/client/contract/invoice + notificação + auditoria), `get_url()` (fonte única) e `setup_queues()` que declara todas como `durable=True` de forma **idempotente**.
+- `EventProducer` base (conexão robusta preguiçosa, publicação **persistente** `DeliveryMode.PERSISTENT` no _default exchange_) e _producers_ por módulo `UserEventProducer` / `ClientEventProducer`.
+- Consumidores `NotificationConsumer` (assina user-created/client-created/contract-approved/invoice-issued) e `AuditConsumer` (persiste um `AuditLog` via `AuditLogRepository`), ambos com **`prefetch_count=1`** e ack pós-processamento (`message.process`); contrato tipado `AuditEvent`.
+- `KafkaConfig` (tópicos `user-events`/`client-events`/`contract-events`/`financial-events`, partições por throughput — financeiro com 6 — e `create_topics()` idempotente via `AIOKafkaAdminClient`); `KafkaEventProducer` (`send_and_wait` com chave de partição) e `KafkaEventConsumer` (por tópico, no `kafka_group_id`, `stop` no `finally`).
+- Integração nos serviços (publicação **após** a escrita persistida, não-bloqueante): `UserService`/`ClientService` → RabbitMQ; `ContractService`/`InvoiceService` → Kafka (evento sob a chave = id). Helper `publish_safely` loga e engole `MessagePublishingException` sem desfazer a escrita.
+- `MessagePublishingException` (`shared/domain/exception/`, `error_code="MESSAGE_PUBLISHING_ERROR"`), encadeada do erro original do broker.
+
+### Alterado
+- `main.py` — o `lifespan` passa a preparar a topologia (`setup_queues` + `KafkaConfig.create_topics`, _best-effort_: um broker indisponível apenas gera aviso, não derruba o startup) e a encerrar os produtores compartilhados no shutdown.
+- _Override_ de mypy para `aiokafka.*` (sem stubs); `aio-pika` é tipado (o canal é `AbstractChannel`).
+
+### Notas
+- **Entrega _at-least-once_:** consumidores confirmam só após o processamento; um handler interrompido causa **redelivery** (validado). Filas duráveis + mensagens persistentes **sobrevivem ao restart** do broker (validado).
+- **Dual-write aceito nesta fase:** um broker fora do ar durante a publicação surge como `MessagePublishingException` (logada) sem desfazer o estado já commitado — sem _outbox_ transacional (adiado). Consumidores devem tolerar duplicatas.
+- No Windows/Docker Desktop, **RabbitMQ e Kafka conectam do host** (diferente do Postgres); só o E2E que grava no banco (create real, persistência de auditoria) roda no container da rede do compose.
 
 ---
 

@@ -30,6 +30,7 @@ from energyhub.shared.constant.permissions import (
     INVOICE_READ,
     INVOICE_UPDATE,
 )
+from energyhub.shared.infrastructure.messaging.kafka_event_producer import kafka_event_producer
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.response.openapi_responses import (
@@ -42,8 +43,8 @@ from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
 def get_invoice_service(session: AsyncSession = Depends(get_session)) -> InvoiceService:
-    """Provedor do `InvoiceService` por requisição (repositório sobre a sessão)."""
-    return InvoiceService(InvoiceRepository(session))
+    """Provedor do `InvoiceService` por requisição (com o produtor Kafka compartilhado)."""
+    return InvoiceService(InvoiceRepository(session), kafka_producer=kafka_event_producer)
 
 
 def get_create_invoice_use_case(

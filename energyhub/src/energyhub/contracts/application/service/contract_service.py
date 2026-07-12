@@ -21,17 +21,41 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
+from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
 
 
 class ContractService:
     """CRUD de contratos com checagens de existência/unicidade. Faz `flush` via repositório;
-    o `commit` fica com a sessão por requisição (`get_session`)."""
+    o `commit` fica com a sessão por requisição (`get_session`).
+
+    Contratos são eventos de alto volume: após cada escrita, publica no tópico Kafka
+    `contract-events` sob a chave = id do contrato (mesma chave → mesma partição, ordem preservada),
+    como efeito colateral não-bloqueante.
+    """
 
     def __init__(
-        self, repository: ContractRepository, mapper: ContractMapper | None = None
+        self,
+        repository: ContractRepository,
+        mapper: ContractMapper | None = None,
+        kafka_producer: KafkaEventProducer | None = None,
     ) -> None:
         self._repository = repository
         self._mapper = mapper or ContractMapper()
+        self._kafka = kafka_producer
+
+    async def _publish_event(self, response: ContractResponseDTO) -> None:
+        """Publica o contrato no tópico `contract-events` (chave = id), se houver produtor."""
+        if self._kafka is not None:
+            await publish_safely(
+                self._kafka.publish(
+                    KafkaConfig.CONTRACT_EVENTS,
+                    str(response.id),
+                    response.model_dump(mode="json"),
+                ),
+                event=KafkaConfig.CONTRACT_EVENTS,
+            )
 
     async def create(self, dto: ContractRequestDTO) -> ContractResponseDTO:
         if await self._repository.exists_by_contract_number(dto.contract_number):
@@ -41,7 +65,9 @@ class ContractService:
         entity = self._mapper.to_entity(dto)
         saved = await self._repository.save(entity)
         await invalidate_cache(CacheConstants.CONTRACTS)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        await self._publish_event(response)
+        return response
 
     @cache(
         namespace=CacheConstants.CONTRACTS,
@@ -80,7 +106,9 @@ class ContractService:
         entity.update_timestamp()
         saved = await self._repository.save(entity)
         await invalidate_cache(CacheConstants.CONTRACTS)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        await self._publish_event(response)
+        return response
 
     async def delete(self, contract_id: UUID) -> None:
         if not await self._repository.exists_by_id(contract_id):

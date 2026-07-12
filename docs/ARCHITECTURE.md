@@ -1,8 +1,9 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–9)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–10)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 9 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
-Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API e Cache Redis** (versão `0.9.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+**Fases 2 a 10 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis e Mensageria
+(RabbitMQ & Kafka)** (versão `0.10.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -10,7 +11,8 @@ enums e agregados) das Fases 2–3, o **schema PostgreSQL + migrações Alembic*
 persistência** (ORM async + repositórios) da Fase 5, a **API REST** (DTOs, serviços, use cases e
 routers) da Fase 6, a **camada de segurança** (login JWT, `get_current_user`, RBAC por permissão) da
 Fase 7, a **documentação da API** (OpenAPI curado + erros padronizados) da Fase 8, o **cache Redis**
-(fastapi-cache2 + invalidação) da Fase 9, suas **assinaturas reais** e como estendê-las nas próximas fases.
+(fastapi-cache2 + invalidação) da Fase 9, a **camada de mensageria assíncrona** (produtores/consumidores
+RabbitMQ + Kafka) da Fase 10, suas **assinaturas reais** e como estendê-las nas próximas fases.
 
 > 📌 Tudo o que segue foi verificado lendo o código-fonte real em `energyhub/src/energyhub/`.
 > Em caso de divergência entre a arquitetura planejada (Fase 0) e o código, **este documento**
@@ -782,7 +784,77 @@ do repositório, evictando o namespace do domínio — a próxima leitura repopu
 
 ---
 
-## 🚀 15. Como adicionar uma nova entidade/módulo (próximas fases)
+## 📨 15. Mensageria Assíncrona (RabbitMQ & Kafka · Fase 10)
+
+A **Fase 10** (versão `0.10.0`) introduziu uma **camada de mensageria** para comunicação orientada a
+eventos **fora do caminho da requisição**: dois brokers por forma de tráfego — **RabbitMQ** para
+_workflows_ por entidade (roteamento a um consumidor + at-least-once) e **Kafka** para _streams_ de
+alto volume (partições + consumer groups). A publicação é um **efeito colateral pós-commit**: os
+serviços permanecem corretos sem os brokers.
+
+### 15.1 🧱 As peças
+
+Tudo em `shared/infrastructure/messaging/` (base) + `<módulo>/infrastructure/messaging/` (por domínio):
+
+| Arquivo | Papel |
+| :------ | :---- |
+| `rabbitmq_config.py` | `RabbitMQConfig` (constantes de **11 filas** + `get_url()`) e `setup_queues()` — declara todas duráveis, idempotente |
+| `event_producer.py` | `EventProducer` base — conexão robusta preguiçosa, `publish(queue, message)` **persistente** (`DeliveryMode.PERSISTENT`) no _default exchange_ |
+| `auth/.../user_event_producer.py`, `clients/.../client_event_producer.py` | Produtores por módulo (subclasses tipadas) + instância _singleton_ compartilhada |
+| `notifications/.../notification_consumer.py`, `audit/.../audit_consumer.py` | Consumidores (`prefetch_count=1`, ack pós-processo); `AuditConsumer` persiste um `AuditLog` |
+| `audit_event.py` | `AuditEvent` — contrato Pydantic tipado da mensagem de auditoria |
+| `kafka_config.py` | `KafkaConfig` (**4 tópicos** com partições/replicação) + `create_topics()` idempotente |
+| `kafka_event_producer.py` / `kafka_event_consumer.py` | `KafkaEventProducer` (keyed `send_and_wait`) / `KafkaEventConsumer` (por tópico, `stop` no `finally`) + _singleton_ |
+| `publish_helper.py` | `publish_safely` — loga e engole `MessagePublishingException` sem desfazer a escrita |
+| `shared/domain/exception/message_publishing_exception.py` | `MessagePublishingException` (`error_code="MESSAGE_PUBLISHING_ERROR"`) |
+
+A **topologia** (filas + tópicos) é preparada no **`lifespan`** da app (idempotente, _best-effort_: um
+broker indisponível apenas gera aviso e não derruba o startup); os produtores _singleton_ são
+encerrados no shutdown. Config única via `settings` (`rabbitmq_url`, `kafka_bootstrap_servers`,
+`kafka_group_id`).
+
+### 15.2 📤 Padrão de produção nos serviços (pós-commit)
+
+Os produtores são injetados (opcionais) nos serviços e chamados **após** a escrita persistida:
+
+```python
+saved = await self._repository.save(entity)
+await invalidate_cache(CacheConstants.CLIENTS)
+response = self._mapper.to_response_dto(saved)
+if self._producer is not None:                        # RabbitMQ (User/Client)
+    await publish_safely(
+        self._producer.publish_client_created(response), event="client.created"
+    )
+return response
+```
+
+`ContractService`/`InvoiceService` publicam no **Kafka** (`contract-events`/`financial-events`) sob a
+**chave = id** (mesma chave → mesma partição → ordem preservada). `publish_safely` garante que uma
+falha de broker vire log, não `rollback` — a mensageria é _downstream_ da fonte de verdade.
+
+### 15.3 📥 Consumidores e garantias de entrega
+
+- **`NotificationConsumer`** assina `user.created`/`client.created`/`contract.approved`/`invoice.issued`;
+  **`AuditConsumer`** consome `audit` e persiste um `AuditLog` (sessão própria + `commit`, pois roda
+  off-request). Ambos: `prefetch_count=1` e ack **dentro** de `message.process()` — ack só no sucesso.
+- **At-least-once:** um handler que falha/é interrompido causa **redelivery** (`requeue=True`).
+- **Durabilidade:** filas `durable=True` + mensagens persistentes **sobrevivem ao restart** do broker.
+- **Isolamento da transação:** um broker fora do ar durante a publicação surge como
+  `MessagePublishingException` (logada) **sem** desfazer o estado commitado.
+
+### 15.4 ⚠️ Notas e limitações
+
+- **Consumidores não-supervisionados nesta fase:** o comportamento está especificado e validado, mas
+  a execução dos processos consumidores (entrypoint/worker) é tarefa de _ops_ (fase posterior).
+- **Dual-write aceito:** sem _outbox_ transacional — um evento pode se perder se o broker cair após o
+  commit; consumidores devem tolerar duplicatas. _Outbox_ fica como evolução.
+- **Deps/tipos:** `aio-pika ^9.4` (tipado; o canal é `AbstractChannel`) e `aiokafka ^0.11` (sem stubs
+  → _override_ de mypy `aiokafka.*`). Kafka no compose usa dois _listeners_ (`localhost:9092` host /
+  `kafka:29092` rede) e `auto-create` desligado. No Windows, **RabbitMQ e Kafka conectam do host**.
+
+---
+
+## 🚀 16. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -817,7 +889,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 16. Referências
+## 📚 17. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

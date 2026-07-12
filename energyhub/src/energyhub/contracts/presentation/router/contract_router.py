@@ -26,6 +26,7 @@ from energyhub.shared.constant.permissions import (
     CONTRACT_READ,
     CONTRACT_UPDATE,
 )
+from energyhub.shared.infrastructure.messaging.kafka_event_producer import kafka_event_producer
 from energyhub.shared.infrastructure.persistence.database import get_session
 from energyhub.shared.infrastructure.security.authorization import require_permission
 from energyhub.shared.presentation.response.openapi_responses import (
@@ -38,8 +39,8 @@ from energyhub.shared.presentation.router.base_router import BaseRouter
 
 
 def get_contract_service(session: AsyncSession = Depends(get_session)) -> ContractService:
-    """Provedor do `ContractService` por requisição (repositório sobre a sessão)."""
-    return ContractService(ContractRepository(session))
+    """Provedor do `ContractService` por requisição (com o produtor Kafka compartilhado)."""
+    return ContractService(ContractRepository(session), kafka_producer=kafka_event_producer)
 
 
 def get_create_contract_use_case(
