@@ -1,5 +1,7 @@
-# Consul — Service ClusterIP (Fase 16). DNS interno `consul-service:8500` (API HTTP + UI) usado
-# por todos os serviços para registro/descoberta e pelo Traefik (provider consulCatalog).
+# Consul — Service ClusterIP (Fase 16). DNS interno `consul-service:8500` (só API HTTP; SEM UI)
+# usado por todos os serviços para registro/descoberta e pelo Traefik (provider consulCatalog).
+# Permanece ClusterIP: nenhuma exposição pública (não há Ingress/NodePort/LoadBalancer apontando
+# p/ o Consul) e, sem `-ui` no agente, não há painel administrativo a alcançar de fora.
 apiVersion: v1
 kind: Service
 metadata:

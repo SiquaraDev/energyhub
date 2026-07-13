@@ -5,8 +5,12 @@
 # bridge compartilhada (`energyhub-network`). A API só inicia depois das dependências com health
 # check reportarem `healthy` (depends_on). Toda configuração é injetada por variável de ambiente.
 #
-# ⚠️ Segurança: as credenciais e o `SECRET_KEY` abaixo são PLACEHOLDERS de desenvolvimento —
-#    rotacionar e externalizar (`.env` / secrets manager) antes de qualquer uso em produção.
+# 🔐 Segurança (harden-security-credentials): NÃO há credencial embutida. `SECRET_KEY`, as senhas
+#    de Postgres/RabbitMQ e o admin do Grafana são lidos de variáveis de ambiente via `.env` (use
+#    `${VAR:?}` → o boot falha se a variável não estiver definida). Copie `.env.example` para `.env`
+#    e gere valores próprios (`openssl rand -hex 32`). `ENVIRONMENT` é `development` por padrão nesta
+#    stack local; em produção (Kubernetes) os valores vêm de um Secret e a guarda de produção aborta
+#    o boot diante de qualquer placeholder. Nunca commite o `.env`.
 #    Primeiro boot com banco vazio: `docker compose exec energyhub-api alembic upgrade head`.
 services:
   # Aplicação EnergyHub (FastAPI/uvicorn :8000) — Fase 14.
@@ -21,16 +25,16 @@ services:
       - "8000:8000"
     environment:
       # Twelve-factor: todas as URLs endereçam as dependências pelo NOME do serviço (não localhost).
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/energyhub
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/energyhub
       # A app deriva `redis_url` de REDIS_HOST/REDIS_PORT; REDIS_URL fica documentado (twelve-factor).
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       ELASTICSEARCH_URL: http://elasticsearch:9200
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # listener interno da rede (host usa localhost:9092)
-      SECRET_KEY: change-me-in-production      # placeholder — rotacionar antes de produção
-      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env (veja .env.example)}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,8 +55,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: energyhub
-      POSTGRES_USER: energyhub            # placeholder — rotacionar antes de produção
-      POSTGRES_PASSWORD: energyhub123      # placeholder — rotacionar antes de produção
+      POSTGRES_USER: ${POSTGRES_USER:-energyhub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env (veja .env.example)}
     ports:
       - "5432:5432"
     volumes:
@@ -88,8 +92,8 @@ services:
     container_name: energyhub-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: energyhub     # placeholder — rotacionar antes de produção
-      RABBITMQ_DEFAULT_PASS: energyhub123   # placeholder — rotacionar antes de produção
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-energyhub}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD no .env (veja .env.example)}
     ports:
       - "5672:5672"    # AMQP
       - "15672:15672"  # UI de gerenciamento
@@ -203,12 +207,12 @@ services:
       SERVICE_HOST: auth-service
       CONSUL_HOST: consul
       CONSUL_PORT: "8500"
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/authdb
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/authdb
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
-      SECRET_KEY: change-me-in-production      # placeholder — rotacionar antes de produção
-      ENVIRONMENT: production
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env (veja .env.example)}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth.rule=PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`) || PathPrefix(`/api/v1/permissions`)"
@@ -245,12 +249,12 @@ services:
       SERVICE_HOST: client-service
       CONSUL_HOST: consul
       CONSUL_PORT: "8500"
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/clientdb
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/clientdb
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
-      SECRET_KEY: change-me-in-production      # mesma chave do Auth (valida o JWT)
-      ENVIRONMENT: production
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}   # mesma chave do Auth (valida o JWT)
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.clients.rule=PathPrefix(`/api/v1/clients`)"
@@ -285,12 +289,12 @@ services:
       SERVICE_HOST: contract-service
       CONSUL_HOST: consul
       CONSUL_PORT: "8500"
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/contractdb
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/contractdb
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SECRET_KEY: change-me-in-production
-      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.contracts.rule=PathPrefix(`/api/v1/contracts`)"
@@ -325,12 +329,12 @@ services:
       SERVICE_HOST: financial-service
       CONSUL_HOST: consul
       CONSUL_PORT: "8500"
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/financialdb
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/financialdb
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SECRET_KEY: change-me-in-production
-      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.invoices.rule=PathPrefix(`/api/v1/invoices`)"
@@ -360,12 +364,12 @@ services:
       SERVICE_HOST: audit-service
       CONSUL_HOST: consul
       CONSUL_PORT: "8500"
-      DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@postgres:5432/auditdb
+      DATABASE_URL: postgresql+asyncpg://energyhub:${POSTGRES_PASSWORD}@postgres:5432/auditdb
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      RABBITMQ_URL: amqp://energyhub:energyhub123@rabbitmq:5672/
-      SECRET_KEY: change-me-in-production
-      ENVIRONMENT: production
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.audit.rule=PathPrefix(`/api/v1/audit-logs`)"
@@ -408,8 +412,8 @@ services:
     container_name: energyhub-grafana
     restart: unless-stopped
     environment:
-      GF_SECURITY_ADMIN_USER: admin        # placeholder — rotacionar antes de produção
-      GF_SECURITY_ADMIN_PASSWORD: admin     # placeholder — rotacionar antes de produção
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?defina GRAFANA_ADMIN_USER no .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD no .env}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana

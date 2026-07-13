@@ -6,8 +6,12 @@ Create Date: 2026-07-12 12:07:00.000000+00:00
 
 """
 
+import os
 from collections.abc import Sequence
 from typing import Union
+
+import bcrypt  # o projeto usa bcrypt direto (passlib 1.7.4 é incompatível com bcrypt 5.x)
+import sqlalchemy as sa
 
 from alembic import op
 
@@ -29,9 +33,22 @@ _PERMISSION_IDS = (PERM_USER_CREATE, PERM_USER_READ, PERM_USER_UPDATE, PERM_USER
 
 ADMIN_USER = "00000000-0000-0000-0000-000000000001"
 
-# Hash bcrypt (rounds=12) da senha "ChangeMe123!".
-# ATENÇÃO: credencial de bootstrap NÃO-produtiva — DEVE ser rotacionada antes de deploy.
-ADMIN_PASSWORD_HASH = "$2b$12$W7wqbZCKOFH06ar9tZKF/uyqc4C9atGAFzunNckGePhWWrRvmwyPG"
+
+def _resolve_admin_hash() -> str | None:
+    """Hash bcrypt do admin derivado de um SECRET de deploy (harden-security-credentials).
+
+    Precedência: `ADMIN_PASSWORD_HASH` (hash pronto) → `ADMIN_PASSWORD` (texto, hasheado aqui).
+    Retorna `None` se nenhum for fornecido — nesse caso o usuário admin **não** é semeado (nunca se
+    usa uma senha publicada/commitada). Forneça a credencial via variável de ambiente/secret e rode
+    a migração no deploy.
+    """
+    precomputed = os.environ.get("ADMIN_PASSWORD_HASH")
+    if precomputed:
+        return precomputed
+    plaintext = os.environ.get("ADMIN_PASSWORD")
+    if plaintext:
+        return bcrypt.hashpw(plaintext.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+    return None
 
 
 def upgrade() -> None:
@@ -62,13 +79,22 @@ def upgrade() -> None:
         ON CONFLICT DO NOTHING;
         """)
 
-    # Usuário admin padrão (idempotente).
-    op.execute(f"""
-        INSERT INTO users (id, username, password, email, full_name, active) VALUES
-            ('{ADMIN_USER}', 'admin', '{ADMIN_PASSWORD_HASH}',
-             'admin@energyhub.local', 'Administrador', true)
-        ON CONFLICT DO NOTHING;
-        """)
+    # Usuário admin padrão (idempotente). A senha vem de um SECRET de deploy (ADMIN_PASSWORD/
+    # ADMIN_PASSWORD_HASH), nunca de um hash commitado. Sem credencial fornecida → admin não é
+    # semeado (o vínculo com o papel também é pulado, pois depende da linha do usuário).
+    admin_hash = _resolve_admin_hash()
+    if admin_hash is None:
+        return
+
+    bind = op.get_bind()
+    bind.execute(
+        sa.text(
+            "INSERT INTO users (id, username, password, email, full_name, active) VALUES "
+            "(:id, 'admin', :pwd, 'admin@energyhub.local', 'Administrador', true) "
+            "ON CONFLICT DO NOTHING"
+        ),
+        {"id": ADMIN_USER, "pwd": admin_hash},
+    )
 
     # Vincula o admin ao papel ADMIN.
     op.execute(f"""

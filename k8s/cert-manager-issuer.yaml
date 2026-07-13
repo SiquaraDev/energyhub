@@ -1,0 +1,134 @@
+# cert-manager — emissão automática do certificado TLS da borda (Grupo 6 · TLS na borda).
+# Terminação HTTPS acontece no Ingress NGINX (ingress.yaml); este manifesto cria o EMISSOR e o
+# Certificate que geram o Secret `energyhub-tls` consumido pelo bloco `tls:` do Ingress.
+#
+# ── Pré-requisito: o cert-manager PRECISA estar instalado ANTES de aplicar este arquivo ──
+#   Ele fornece as CRDs (Issuer/ClusterIssuer/Certificate) e o controlador que reconcilia tudo.
+#   Instalação (use a última estável — veja https://cert-manager.io/docs/installation/):
+#     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+#   Validado com cert-manager v1.17.x (API estável `cert-manager.io/v1`).
+#
+# Ordem de aplicação: instalar cert-manager → aplicar este arquivo → aplicar ingress.yaml.
+#
+# ════════════════════════════════════════════════════════════════════════════════════════════
+#  OPÇÃO A (PADRÃO/ATIVA) — CA interna auto-assinada (clusters privados / staging).
+#  Gera uma Autoridade Certificadora própria dentro do cluster e assina o cert da plataforma
+#  com ela. O navegador NÃO confia por padrão (é interna); para remover o aviso, importe o
+#  certificado da CA (Secret `energyhub-ca-secret`, chave `ca.crt`) no trust store da máquina.
+# ════════════════════════════════════════════════════════════════════════════════════════════
+
+# 1) Issuer bootstrap auto-assinado — usado só para assinar o certificado da CA interna abaixo.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: energyhub-selfsigned-issuer
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+spec:
+  selfSigned: {}
+---
+# 2) Certificado da CA interna (isCA) — a raiz de confiança da plataforma. É assinado pelo issuer
+#    bootstrap acima e persistido no Secret `energyhub-ca-secret` (contém tls.crt/tls.key/ca.crt).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: energyhub-ca
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+spec:
+  isCA: true
+  commonName: EnergyHub Internal CA
+  secretName: energyhub-ca-secret
+  duration: 43800h    # ~5 anos — a CA vive muito mais que os certs folha que ela assina.
+  renewBefore: 720h   # renova 30 dias antes de expirar.
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: energyhub-selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+# 3) CA Issuer — passa a assinar os certificados folha usando a CA interna criada em (2).
+#    É este o emissor referenciado pela annotation `cert-manager.io/issuer` do Ingress.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: energyhub-ca-issuer
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+spec:
+  ca:
+    secretName: energyhub-ca-secret
+---
+# 4) Certificado FOLHA da plataforma para o host `energyhub.local`, gravado no Secret
+#    `energyhub-tls` — exatamente o secret que o `tls:` do Ingress consome para terminar HTTPS.
+#    OBS.: o Ingress também traz a annotation `cert-manager.io/issuer`; o ingress-shim consegue
+#    criar este mesmo Certificate a partir do bloco `tls:`. Esta declaração explícita é a forma
+#    DECLARATIVA equivalente e é a autoritativa aqui. Mantenha apenas UMA das duas fontes gerando
+#    `energyhub-tls` (ou este Certificate, ou o ingress-shim) para não haver dois Certificates
+#    disputando o mesmo Secret.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: energyhub-tls
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+spec:
+  secretName: energyhub-tls
+  duration: 2160h     # 90 dias.
+  renewBefore: 360h   # renova 15 dias antes de expirar.
+  subject:
+    organizations:
+      - EnergyHub
+  commonName: energyhub.local
+  dnsNames:
+    - energyhub.local
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - digital signature
+    - key encipherment
+  issuerRef:
+    name: energyhub-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+# ════════════════════════════════════════════════════════════════════════════════════════════
+#  OPÇÃO B (COMENTADA) — Let's Encrypt (ACME) para um domínio PÚBLICO real.
+#  Emite um certificado publicamente confiável (sem aviso no navegador). NÃO funciona com
+#  `energyhub.local` (Let's Encrypt exige um domínio público resolvível e alcançável na porta 80
+#  pelo desafio HTTP-01). Para usar:
+#    1. Substitua `energyhub.local` por seu domínio real neste arquivo e no ingress.yaml.
+#    2. Comente TODA a Opção A acima e descomente os blocos abaixo.
+#    3. No ingress.yaml, troque a annotation para:
+#         cert-manager.io/cluster-issuer: letsencrypt-prod
+#       e ajuste o `issuerRef` do Certificate para kind: ClusterIssuer / name: letsencrypt-prod.
+#    4. Comece pelo endpoint de STAGING (comentado) para não estourar o rate limit de produção.
+# ════════════════════════════════════════════════════════════════════════════════════════════
+#
+# apiVersion: cert-manager.io/v1
+# kind: ClusterIssuer            # ClusterIssuer (cluster-wide) é o padrão para ACME.
+# metadata:
+#   name: letsencrypt-prod
+#   labels:
+#     app.kubernetes.io/part-of: energyhub
+# spec:
+#   acme:
+#     # Produção. Para testar sem gastar rate limit use o staging:
+#     # server: https://acme-staging-v02.api.letsencrypt.org/directory
+#     server: https://acme-v02.api.letsencrypt.org/directory
+#     email: seu-email@exemplo.com        # e-mail de contato (avisos de expiração).
+#     privateKeySecretRef:
+#       name: letsencrypt-prod-account-key  # chave da conta ACME (criada pelo cert-manager).
+#     solvers:
+#       - http01:
+#           ingress:
+#             ingressClassName: nginx        # resolve o desafio HTTP-01 via Ingress NGINX.

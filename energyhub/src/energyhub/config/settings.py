@@ -2,7 +2,10 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from energyhub.config.security_guard import enforce_production_credentials
 
 
 class Settings(BaseSettings):
@@ -12,8 +15,11 @@ class Settings(BaseSettings):
     app_version: str = "0.12.0"  # versão atual (marco da fase); usada no `application_info`
     environment: str = "development"  # development | staging | production
     debug: bool = False
-    database_url: str = "postgresql+asyncpg://energyhub:energyhub123@localhost:5432/energyhub"
-    secret_key: str = "change-me-in-production"
+    # Credenciais SEM default placeholder (harden-security-credentials): o valor vem sempre de
+    # variável de ambiente / secret. Vazio = "não configurado"; em `production` a guarda abaixo
+    # aborta o boot (fail-fast), em dev/staging segue permissivo (conveniência local via `.env`).
+    database_url: str = ""
+    secret_key: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -24,7 +30,8 @@ class Settings(BaseSettings):
     redis_password: str | None = None
 
     # Mensageria — Fase 10. RabbitMQ (workflows por entidade) + Kafka (streams de alto volume).
-    rabbitmq_url: str = "amqp://energyhub:energyhub123@localhost:5672/"
+    # `rabbitmq_url` embute a senha → sem default placeholder (fornecida por env/secret).
+    rabbitmq_url: str = ""
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_group_id: str = "energyhub"
 
@@ -33,6 +40,19 @@ class Settings(BaseSettings):
     elasticsearch_timeout: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def _guard_production_credentials(self) -> "Settings":
+        """Em `production`, aborta o boot se alguma credencial estiver vazia ou com placeholder."""
+        enforce_production_credentials(
+            self.environment,
+            {
+                "SECRET_KEY": self.secret_key,
+                "DATABASE_URL": self.database_url,
+                "RABBITMQ_URL": self.rabbitmq_url,
+            },
+        )
+        return self
 
     @property
     def redis_url(self) -> str:

@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: energyhub_test
       POSTGRES_USER: energyhub
-      POSTGRES_PASSWORD: energyhub123
+      POSTGRES_PASSWORD: eh_test_pw   # senha efêmera da infra de teste (não é placeholder de prod)
     ports:
       - "5433:5432"
     volumes:
@@ -43,7 +43,7 @@ services:
     container_name: energyhub-rabbitmq-test
     environment:
       RABBITMQ_DEFAULT_USER: energyhub
-      RABBITMQ_DEFAULT_PASS: energyhub123
+      RABBITMQ_DEFAULT_PASS: eh_test_pw   # senha efêmera da infra de teste (não é placeholder)
     ports:
       - "5673:5672"     # AMQP
       - "15673:15672"   # UI de gerenciamento

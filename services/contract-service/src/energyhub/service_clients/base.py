@@ -35,7 +35,12 @@ class ServiceClient:
         self._service_name = service_name
         self._default_port = default_port
         # Timeout explícito (§8.1): uma dependência lenta/travada não bloqueia o chamador sem limite.
-        self._client = httpx.AsyncClient(timeout=timeout)
+        # Credencial inter-servico (harden-security-credentials): toda chamada carrega o header
+        # X-Internal-Api-Key exigido pelas rotas /internal/* do auth-service.
+        _headers = (
+            {"X-Internal-Api-Key": settings.internal_api_key} if settings.internal_api_key else {}
+        )
+        self._client = httpx.AsyncClient(timeout=timeout, headers=_headers)
 
     async def _resolve_base_url(self) -> str:
         """Resolve uma instância saudável via catálogo do Consul; fallback = nome lógico (DNS)."""

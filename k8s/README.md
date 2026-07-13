@@ -47,9 +47,12 @@ daemon no Windows) — apenas o `consulCatalog`.
 
 - **`ConfigMap`** (não sensível): `ENVIRONMENT`, `CONSUL_HOST/PORT`, `APP_PORT`, `SERVICE_HOST`,
   `REDIS_HOST/PORT`, `KAFKA_BOOTSTRAP_SERVERS`.
-- **`Secret`** (sensível): `SECRET_KEY`, senhas e as **`*_DATABASE_URL`/`RABBITMQ_URL`** — como a
-  app lê a URL como uma única string que embute a senha, a URL inteira é tratada como sensível e
-  fica no Secret (a senha nunca aparece em ConfigMap nem em manifesto de Deployment).
+- **`Secret`** (sensível): `SECRET_KEY`, `INTERNAL_API_KEY`, senhas e as **`*_DATABASE_URL`/`RABBITMQ_URL`**
+  — como a app lê a URL como uma única string que embute a senha, a URL inteira é tratada como
+  sensível e fica no Secret (a senha nunca aparece em ConfigMap nem em manifesto de Deployment).
+  O `Secret` `energyhub-secret` **não é mais commitado em texto puro**: ele é resolvido **dentro do
+  cluster** a partir de um **SealedSecret** cifrado (padrão) ou de um **ExternalSecret** (Vault) —
+  ver [`k8s/secrets/`](secrets/README.md). Nunca commitar o `Secret` em claro.
 
 ### Backends stateful in-cluster (decisão da Fase 16)
 
@@ -92,15 +95,31 @@ for s in auth client contract financial audit; do
 done
 ```
 
-### 3) Aplicar os manifestos
+### 3) Resolver o `energyhub-secret` (sem plaintext no git)
+
+O `Secret` sensível não vive mais em `k8s/secret.yaml`. Antes de aplicar a plataforma, resolva-o
+**dentro do cluster** por um dos fluxos de [`k8s/secrets/`](secrets/README.md) — o `kubectl apply -f
+k8s/` **não** recorre no subdiretório `secrets/`, então este passo é explícito:
+
+```bash
+# Padrão — Sealed Secrets (o controlador expande o SealedSecret cifrado em energyhub-secret):
+kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml
+
+# — ou alternativa — External Secrets Operator (materializa a partir do Vault):
+kubectl apply -f k8s/secrets/energyhub-externalsecret.example.yaml
+
+kubectl get secret energyhub-secret -n energyhub   # confirmar que foi criado
+```
+
+### 4) Aplicar os manifestos
 
 ```bash
 kubectl apply -f k8s/namespace.yaml      # namespace primeiro
-kubectl apply -f k8s/                     # todo o restante (idempotente)
+kubectl apply -f k8s/                     # todo o restante (idempotente; secrets/ resolvido no passo 3)
 kubectl get pods -n energyhub -w          # aguardar todos Running/ready
 ```
 
-### 4) Seed do admin (pós-deploy)
+### 5) Seed do admin (pós-deploy)
 
 O 1º usuário não pode nascer pela API protegida e as tabelas só existem após cada serviço rodar
 `metadata.create_all`. Após o `auth-service` ficar **ready**, insira o admin em `authdb`
@@ -163,8 +182,9 @@ Remove apenas os manifestos do cluster — não toca no código de aplicação n
 
 ## 🔒 Notas de produção
 
-- **Rotacionar** `SECRET_KEY` e todas as senhas; migrar de `Secret` base64 para um secret manager
-  real (Vault / sealed-secrets). Nunca commitar credenciais reais.
+- **Rotacionar** `SECRET_KEY`, `INTERNAL_API_KEY` e todas as senhas. O `Secret` já **não** é
+  commitado em claro — é resolvido no cluster via **SealedSecret** (cifrado) ou **ExternalSecret**
+  (Vault); ver [`k8s/secrets/`](secrets/README.md). Nunca commitar o `Secret` em texto puro.
 - Trocar os backends `emptyDir` por managed stores externos (URLs no Secret) ou `StatefulSet` + PVC.
 - Habilitar **TLS** na borda (cert-manager) e fechar o dashboard do Traefik / UI do Consul.
 - Fixar **tags de imagem** explícitas (evitar `latest` em ambientes compartilhados) — Fase 17 (CI/CD).

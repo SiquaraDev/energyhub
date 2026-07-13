@@ -23,7 +23,11 @@ spec:
         - name: consul
           image: hashicorp/consul:1.19
           imagePullPolicy: IfNotPresent
-          args: ["agent", "-server", "-bootstrap", "-ui", "-client=0.0.0.0"]
+          # UI do Consul REMOVIDA (sem `-ui`): nenhuma interface administrativa roda no agente.
+          # `-client=0.0.0.0` é mantido só p/ a API HTTP :8500 aceitar conexões de dentro do
+          # cluster (registro/descoberta + provider consulCatalog do Traefik). Essa API fica
+          # ClusterIP-only (nunca no Ingress) e o acesso é restringido por NetworkPolicy.
+          args: ["agent", "-server", "-bootstrap", "-client=0.0.0.0"]
           ports:
             - name: http
               containerPort: 8500

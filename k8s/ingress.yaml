@@ -1,9 +1,14 @@
-# Ingress (Fase 16) — borda externa HTTP. Roteia o host da plataforma (energyhub.local) para o
-# gateway Traefik (traefik-service:80), que por sua vez despacha por prefixo aos microsserviços.
+# Ingress (Fase 16 · TLS na borda) — borda externa HTTPS. Termina TLS para o host da plataforma
+# (energyhub.local) e roteia para o gateway Traefik (traefik-service:80), que despacha por prefixo
+# aos microsserviços. O TLS é encerrado AQUI (na borda NGINX); do Ingress para o Traefik o tráfego
+# segue em HTTP interno dentro do cluster.
 #
-# Pré-requisitos: um ingress controller instalado (ex.: NGINX Ingress — `ingressClassName: nginx`)
-# e o host mapeado localmente para o endereço do ingress (ex.: `/etc/hosts` → 127.0.0.1
-# energyhub.local, com `minikube tunnel`/port-forward conforme o cluster).
+# Pré-requisitos:
+#   - um ingress controller instalado (NGINX Ingress — `ingressClassName: nginx`) e o host mapeado
+#     localmente para o endereço do ingress (ex.: `/etc/hosts` → 127.0.0.1 energyhub.local, com
+#     `minikube tunnel`/port-forward conforme o cluster);
+#   - o cert-manager instalado e o `k8s/cert-manager-issuer.yaml` aplicado — ele cria o emissor
+#     `energyhub-ca-issuer` e o Secret `energyhub-tls` (par cert/chave) consumido pelo `tls:` abaixo.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,10 +16,25 @@ metadata:
   namespace: energyhub
   labels:
     app.kubernetes.io/part-of: energyhub
+  annotations:
+    # cert-manager: emite/renova o certificado do host via ingress-shim usando o Issuer namespaced
+    # `energyhub-ca-issuer`. O Certificate declarado explicitamente em cert-manager-issuer.yaml é a
+    # fonte autoritativa do Secret `energyhub-tls`; mantenha só UMA fonte gerando esse Secret.
+    cert-manager.io/issuer: energyhub-ca-issuer
+    # Redireciona todo HTTP (:80) para HTTPS (:443) na borda — `force-ssl-redirect` garante o 308
+    # mesmo antes de o certificado ficar pronto/quando o default-backend responde.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
   # Sem rewrite-target: o caminho original (/api/v1/...) é repassado INTACTO ao Traefik, que faz
   # o roteamento por PathPrefix. Reescrever para "/" quebraria o roteamento do gateway.
 spec:
   ingressClassName: nginx
+  # Terminação TLS na borda: o NGINX apresenta o certificado do Secret `energyhub-tls` (emitido
+  # pelo cert-manager) para conexões ao host energyhub.local.
+  tls:
+    - hosts:
+        - energyhub.local
+      secretName: energyhub-tls
   rules:
     - host: energyhub.local
       http:

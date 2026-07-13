@@ -21,12 +21,17 @@ import os
 # --- Ambiente de teste (task 2.2) --------------------------------------------------------------
 # Definido no topo do módulo (antes de importar `settings`/`app`) para que a aplicação nunca
 # conecte a um datastore de desenvolvimento/produção. Portas não-padrão do docker-compose.test.yml.
+# NOTA: perfil de teste é `development` (guarda de produção não dispara). `SECRET_KEY` é um valor
+# de teste dedicado (não é credencial de produção) e a senha da infra de teste NÃO usa o placeholder
+# `energyhub123` — o repositório fica livre de credenciais placeholder ativas.
 _TEST_ENV_DEFAULTS = {
-    "DATABASE_URL": "postgresql+asyncpg://energyhub:energyhub123@localhost:5433/energyhub_test",
+    "DATABASE_URL": "postgresql+asyncpg://energyhub:eh_test_pw@localhost:5433/energyhub_test",
     "REDIS_URL": "redis://localhost:6380/0",
     "REDIS_HOST": "localhost",
     "REDIS_PORT": "6380",
-    "RABBITMQ_URL": "amqp://energyhub:energyhub123@localhost:5673/",
+    "RABBITMQ_URL": "amqp://energyhub:eh_test_pw@localhost:5673/",
+    "SECRET_KEY": "test-only-secret-key-not-for-production",
+    "ENVIRONMENT": "development",
 }
 for _key, _value in _TEST_ENV_DEFAULTS.items():
     os.environ.setdefault(_key, _value)

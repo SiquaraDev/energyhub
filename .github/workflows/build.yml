@@ -22,6 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Guarda de segurança — falha cedo (antes de instalar) se algum Secret do k8s estiver em texto
+      # puro ou se um valor placeholder (change-me-in-production / energyhub123 / admin/admin) aparecer
+      # como credencial ativa. `working-directory: .` sobrepõe o default `energyhub` deste job: o
+      # script varre o repo inteiro (k8s/, services/, docker-compose.yml, ...) a partir da RAIZ.
+      - name: "Guard: no plaintext secrets / placeholder credentials"
+        working-directory: .
+        run: bash scripts/check_no_plaintext_secrets.sh
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:

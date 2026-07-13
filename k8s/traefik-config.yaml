@@ -2,6 +2,13 @@
 # Provider Consul-catalog apontando para o Service DNS do Consul no cluster (consul-service:8500).
 # NÃO usa o provider Docker (que não alcança o daemon no Windows) — o roteamento vem das tags
 # `traefik.*` que cada serviço publica no Consul ao se registrar.
+#
+# Endurecimento do dashboard: o modo `insecure` (dashboard sem auth no entrypoint público)
+# está DESLIGADO. O dashboard segue habilitado, porém servido apenas por um router dedicado
+# no entrypoint INTERNO `traefik` (:8080), protegido por basic-auth. O Ingress nginx do edge
+# aponta só para a porta 80 (traefik-service:80), logo o :8080 nunca é publicado externamente.
+# A config dinâmica (router + middleware do dashboard) vem da chave `dynamic.yml` abaixo,
+# lida pelo provider `file` em /etc/traefik/dynamic/.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,8 +20,15 @@ metadata:
 data:
   traefik.yml: |
     entryPoints:
+      # :80 — tráfego de APLICAÇÃO. É esta porta que o Ingress nginx do edge expõe
+      # (ingress → traefik-service:80). Todo o roteamento público passa por aqui.
       web:
         address: ":80"
+      # :8080 — entrypoint INTERNO do dashboard. NÃO é exposto pelo Ingress (que só
+      # conhece a :80). Acesso restrito ao cluster (ClusterIP/port-forward) e ainda
+      # assim protegido por basic-auth no router `dashboard` (ver dynamic.yml).
+      traefik:
+        address: ":8080"
 
     providers:
       consulCatalog:
@@ -24,12 +38,43 @@ data:
         endpoint:
           address: "consul-service:8500"
           scheme: http
+      # Provider de arquivo p/ a config DINÂMICA (router + middleware do dashboard).
+      # Lê os arquivos da chave `dynamic.yml` deste ConfigMap quando montada no diretório
+      # /etc/traefik/dynamic/. Mantém as credenciais fora da config estática.
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
 
     accessLog: {}
 
     log:
       level: INFO
 
+    # Dashboard HABILITADO, porém `insecure` DESLIGADO: não há API/dashboard aberto no
+    # entrypoint público :80. O dashboard só é alcançável pelo router `dashboard` do
+    # dynamic.yml, no entrypoint interno :8080 e atrás do basic-auth. Nunca vai ao edge.
     api:
       dashboard: true
-      insecure: true
+      insecure: false
+
+  # Config DINÂMICA do Traefik — roteia o dashboard interno com autenticação.
+  # Montada em /etc/traefik/dynamic/ (ver provider `file` na config estática acima).
+  dynamic.yml: |
+    http:
+      routers:
+        # Router do dashboard: responde SÓ no entrypoint interno `traefik` (:8080),
+        # nunca no :80 público, e exige o middleware de basic-auth.
+        dashboard:
+          entryPoints:
+            - traefik
+          rule: "PathPrefix(`/dashboard`) || PathPrefix(`/api`)"
+          service: api@internal
+          middlewares:
+            - dashboard-auth
+      middlewares:
+        # Basic-auth do dashboard. As credenciais NÃO são versionadas aqui: o arquivo
+        # htpasswd (hash bcrypt) é projetado a partir do energyhub-secret e montado em
+        # /etc/traefik/auth/users. Assim nenhum hash/senha fica no repositório.
+        dashboard-auth:
+          basicAuth:
+            usersFile: /etc/traefik/auth/users

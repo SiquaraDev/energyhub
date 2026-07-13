@@ -59,6 +59,11 @@ spec:
                 secretKeyRef:
                   name: energyhub-secret
                   key: SECRET_KEY
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: INTERNAL_API_KEY
           resources:
             requests:
               cpu: "100m"

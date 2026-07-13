@@ -68,6 +68,12 @@ logs/
 *.sqlite
 *.sqlite3
 
+# ---- Segredos k8s (Secret UNSEALED preenchido — nunca commitar) ----
+# O insumo do kubeseal contem credenciais em claro; so o SealedSecret cifrado e' commitavel.
+# Os arquivos .example / sealedsecret / externalsecret NAO sao ignorados (nao contem segredo real).
+k8s/secrets/energyhub-secret.local.yaml
+k8s/secrets/*.local.yaml
+
 # ---- Ferramentas do assistente ----
 .claude
 .windsurf

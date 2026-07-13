@@ -19,6 +19,7 @@
 | 🧩 **[bounded-contexts.md](./bounded-contexts.md)** | Decomposição em microsserviços (Fase 15): inventário módulo→contexto→serviço, grafo de dependências (DAG), ordem de extração e regras (banco por serviço, HTTP + discovery + gateway) |
 | ☸️ **[k8s/README.md](../k8s/README.md)** | Orquestração com Kubernetes (Fase 16): árvore de manifestos `k8s/`, modelo ConfigMap×Secret, backends in-cluster, procedimento de subida (minikube), validação e notas de produção |
 | 🔁 **[ci-cd.md](./ci-cd.md)** | Automação CI/CD (Fase 17): os 5 workflows GitHub Actions, secrets necessários, registry GHCR, fluxo de deploy/rollback e a validação em kind efêmero |
+| 🔐 **[runbook-security.md](./runbook-security.md)** | Runbook de segurança (`harden-security-credentials`): rotação por credencial (`SECRET_KEY`, admin, Grafana, Postgres, RabbitMQ, `INTERNAL_API_KEY`), fluxo Sealed/External Secrets, backup/restore da chave de selagem, a guarda de produção e o checklist pré-produção |
 | 🚨 **[API_ERRORS.md](./API_ERRORS.md)** | Catálogo de erros da API: formatos `ErrorResponse`/`ValidationErrorResponse`, status HTTP e `error_code` por módulo |
 | 🧪 **[API_EXAMPLES.md](./API_EXAMPLES.md)** | Exemplos `curl` dos fluxos principais (login → CRUD de clientes) com o cabeçalho `Authorization: Bearer` |
 | 🗺️ **[ROADMAP.md](./ROADMAP.md)** | Plano de evolução detalhado das **18 fases**, agrupadas em 7 etapas, com objetivos, entregáveis, decisões-chave e mapa de dependências |

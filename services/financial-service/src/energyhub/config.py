@@ -2,7 +2,28 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# --- Guarda de credenciais de producao (harden-security-credentials) ---------------------------
+_KNOWN_PLACEHOLDERS = ("change-me-in-production", "energyhub123", "admin", "ChangeMe123!")
+
+
+def _enforce_production_credentials(environment: str, credentials: dict[str, str]) -> None:
+    """Em producao, aborta o boot se alguma credencial estiver vazia ou com placeholder."""
+    if environment.strip().lower() != "production":
+        return
+    problems = [
+        name
+        for name, value in credentials.items()
+        if not value or any(ph in value for ph in _KNOWN_PLACEHOLDERS)
+    ]
+    if problems:
+        raise RuntimeError(
+            "Boot em producao abortado - credenciais inseguras (vazias ou com placeholder): "
+            + ", ".join(problems)
+        )
 
 
 class Settings(BaseSettings):
@@ -26,9 +47,10 @@ class Settings(BaseSettings):
     contract_service_host: str = "contract-service"
     contract_service_port: int = 8003
 
-    database_url: str = "postgresql+asyncpg://energyhub:energyhub123@postgres:5432/financialdb"
+    database_url: str = ""  # sem credencial embutida — vem de env/secret
 
-    secret_key: str = "change-me-in-production"
+    secret_key: str = ""  # sem default placeholder — vem de env/secret
+    internal_api_key: str = ""  # credencial inter-servico p/ rotas /internal/* (X-Internal-Api-Key)
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
@@ -36,12 +58,20 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str | None = None
-    rabbitmq_url: str = "amqp://energyhub:energyhub123@rabbitmq:5672/"
+    rabbitmq_url: str = ""  # sem credencial embutida — vem de env/secret
     kafka_bootstrap_servers: str = "kafka:29092"
     elasticsearch_url: str = "http://elasticsearch:9200"
     elasticsearch_timeout: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def _guard_credentials(self) -> "Settings":
+        _enforce_production_credentials(
+            self.environment,
+            {"SECRET_KEY": self.secret_key, "DATABASE_URL": self.database_url},
+        )
+        return self
 
     @property
     def redis_url(self) -> str:
