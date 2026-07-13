@@ -1,0 +1,29 @@
+# financial-service — HorizontalPodAutoscaler (Fase 16). 2→5 réplicas por CPU 70% / memória 80%.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: financial-service-hpa
+  namespace: energyhub
+  labels:
+    app: financial-service
+    app.kubernetes.io/part-of: energyhub
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: financial-service
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

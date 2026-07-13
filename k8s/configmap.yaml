@@ -1,0 +1,14 @@
+# ConfigMap compartilhado — valores NÃO sensíveis comuns a todos os serviços (Fase 16).
+# Discovery aponta para o Service DNS do Consul dentro do cluster (`consul-service`), não mais
+# para o hostname do Compose. Injetado nos pods via `envFrom`/`valueFrom.configMapKeyRef`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: energyhub-config
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+data:
+  ENVIRONMENT: "production"
+  CONSUL_HOST: "consul-service"
+  CONSUL_PORT: "8500"

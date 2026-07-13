@@ -1,0 +1,28 @@
+# Ingress (Fase 16) — borda externa HTTP. Roteia o host da plataforma (energyhub.local) para o
+# gateway Traefik (traefik-service:80), que por sua vez despacha por prefixo aos microsserviços.
+#
+# Pré-requisitos: um ingress controller instalado (ex.: NGINX Ingress — `ingressClassName: nginx`)
+# e o host mapeado localmente para o endereço do ingress (ex.: `/etc/hosts` → 127.0.0.1
+# energyhub.local, com `minikube tunnel`/port-forward conforme o cluster).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: energyhub-ingress
+  namespace: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+  # Sem rewrite-target: o caminho original (/api/v1/...) é repassado INTACTO ao Traefik, que faz
+  # o roteamento por PathPrefix. Reescrever para "/" quebraria o roteamento do gateway.
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: energyhub.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik-service
+                port:
+                  number: 80

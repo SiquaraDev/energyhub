@@ -1125,7 +1125,69 @@ a partir das **tags `traefik.*`** que cada serviço publica no Consul, roteando 
 
 ---
 
-## 🚀 21. Como adicionar uma nova entidade/módulo (próximas fases)
+## ☸️ 21. Orquestração com Kubernetes (Fase 16)
+
+A Fase 16 declara **toda a plataforma como manifestos Kubernetes** em [`k8s/`](../k8s/) — o estado
+desejado de um cluster, aplicado com `kubectl apply -f k8s/`. Consome as imagens da Fase 14 e as
+fronteiras da Fase 15; **não altera código de aplicação** — só a camada de orquestração. Validado
+num cluster **minikube** local (Kubernetes v1.35). Procedimento completo em [`k8s/README.md`](../k8s/README.md).
+
+**O que roda no cluster** (namespace `energyhub`, 40 documentos YAML):
+
+| Camada | Recursos |
+| :----- | :------- |
+| Microsserviços | `Deployment` + `Service` (ClusterIP) + `HPA` — auth/client/contract/financial/audit |
+| Gateway/discovery | `traefik` + `traefik-service` (**LoadBalancer**), `consul` + `consul-service` |
+| Borda | `Ingress` (classe `nginx`) `energyhub.local` → `traefik-service:80` |
+| Backends stateful | `postgres` (+ initdb dos 5 bancos), `redis`, `rabbitmq`, `kafka`, `zookeeper` |
+| Config | `energyhub-config` + `<svc>-config` (ConfigMaps) + `energyhub-secret` (Secret) |
+
+**Config × Secret.** Valores não sensíveis (ambiente, Consul, porta, `SERVICE_HOST`, Redis/Kafka)
+em **ConfigMaps** (injetados por `envFrom` + montados como volume); `SECRET_KEY`, senhas e as
+`*_DATABASE_URL`/`RABBITMQ_URL` (que embutem a senha) num **Secret** (`valueFrom.secretKeyRef`).
+
+**Deployments.** `replicas: 2`, `resources.requests/limits` (CPU/memória), `liveness`/`readiness`
+contra `/health` (self-healing: readiness porteia o tráfego, liveness recria o pod travado). DNS do
+cluster (`consul-service`, `postgres-service`, `client-service`, …) substitui os hostnames do Compose.
+
+**Networking.** `ClusterIP` para o tráfego interno (DNS estável, endpoints só de pods _ready_);
+`LoadBalancer` + `Ingress` na borda. O Traefik mantém o provider **Consul-catalog** da Fase 15
+(cada serviço publica suas tags `traefik.*` no Consul ao registrar).
+
+**Autoscaling.** Um `HorizontalPodAutoscaler` (`autoscaling/v2`) por serviço — CPU 70% / memória 80%,
+`min 2`/`max 5` — alimentado pelo **Metrics Server**. Verificado sob carga: o `auth-service`
+escalou **2 → 5** (`SuccessfulRescale … cpu … above target`) e recolheu a `2` após a janela de
+estabilização.
+
+**Backends stateful in-cluster (decisão).** Resolvendo a _Open Question_ do design: em dev os data
+stores rodam **dentro** do cluster (endereçados por DNS, `emptyDir`); em produção troca-se para
+managed stores externos ajustando **só as URLs no Secret** — nenhum outro manifesto muda.
+
+> **Correções necessárias sob k8s (reconciliações reais):**
+> - **`enableServiceLinks: false`** nos 5 serviços — o k8s injeta env vars estilo docker-links
+>   (ex.: `AUTH_SERVICE_PORT=tcp://…:8001`) que colidem com os campos `*_service_port` do `Settings`
+>   (pydantic) e quebram o parse. Desligá-las faz o app usar seus defaults de DNS + Consul.
+> - **Kafka**: `KAFKA_HEAP_OPTS=-Xmx512m` (o default `-Xmx1G` estoura o limite → `OOMKilled`);
+>   `strategy: Recreate` (broker único — com `RollingUpdate` os dois pods disputam `broker.id=1` no
+>   Zookeeper → `NodeExists`); `publishNotReadyAddresses: true` no Service (o broker precisa se
+>   alcançar por `kafka-service:9092` **antes** do readiness passar). Tópicos com `auto-create` off
+>   devem ser criados (ex.: `contract-events`).
+>
+> **Limitação herdada da Fase 15 (fora do escopo da orquestração):** `register_with_consul` usa
+> `service_id = {name}-{port}` — **não único por réplica**. Com `replicas > 1` + rotatividade de
+> pods (rollout/scale-in), o shutdown de uma réplica desregistra o ID compartilhado e some com o
+> serviço no Consul. Correção adequada (ID único por pod, ex.: `+hostname`) é **mudança de imagem**,
+> deferida. A trilha de **auditoria** também não é auto-populada: nenhum produtor publica na fila
+> `audit` no topología de eventos da Fase 15 (o `audit-service` está implantado e consumindo, mas a
+> fila não recebe eventos de negócio) — igualmente uma pendência de app, independente do k8s.
+
+**Validação e2e (no cluster).** Login → criar cliente → criar contrato **pelo gateway**
+(`ingress → Traefik → Consul-catalog → serviço`, com `forwardAuth` no `auth-service`) retornaram
+`200/201/201`; DNS inter-serviço e endpoints confirmados; eventos/logs sem erros novos após as correções.
+
+---
+
+## 🚀 22. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -1160,7 +1222,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 22. Referências
+## 📚 23. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

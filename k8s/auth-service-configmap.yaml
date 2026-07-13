@@ -1,0 +1,16 @@
+# Config NÃO sensível do auth-service (Fase 16). A senha do banco/RabbitMQ vive no Secret;
+# aqui ficam porta, host de registro no Consul e conexão do Redis (sem credencial).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-config
+  namespace: energyhub
+  labels:
+    app: auth-service
+    app.kubernetes.io/part-of: energyhub
+data:
+  APP_NAME: "auth-service"
+  APP_PORT: "8001"
+  SERVICE_HOST: "auth-service"   # Address registrado no Consul = DNS do Service (mesmo namespace)
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"

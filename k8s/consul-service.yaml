@@ -1,0 +1,26 @@
+# Consul — Service ClusterIP (Fase 16). DNS interno `consul-service:8500` (API HTTP + UI) usado
+# por todos os serviços para registro/descoberta e pelo Traefik (provider consulCatalog).
+apiVersion: v1
+kind: Service
+metadata:
+  name: consul-service
+  namespace: energyhub
+  labels:
+    app: consul
+    app.kubernetes.io/part-of: energyhub
+spec:
+  type: ClusterIP
+  selector:
+    app: consul
+  ports:
+    - name: http
+      port: 8500
+      targetPort: 8500
+    - name: dns-tcp
+      port: 8600
+      targetPort: 8600
+      protocol: TCP
+    - name: dns-udp
+      port: 8600
+      targetPort: 8600
+      protocol: UDP

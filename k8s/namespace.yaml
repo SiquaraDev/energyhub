@@ -1,0 +1,9 @@
+# Namespace dedicado — isola toda a plataforma EnergyHub do restante do cluster (Fase 16).
+# `kubectl delete namespace energyhub` remove tudo de uma vez (blast radius único).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: energyhub
+  labels:
+    app.kubernetes.io/part-of: energyhub
+    app.kubernetes.io/managed-by: kubectl

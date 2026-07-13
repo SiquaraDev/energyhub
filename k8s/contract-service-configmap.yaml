@@ -1,0 +1,16 @@
+# Config NÃO sensível do contract-service (Fase 16). Usa Kafka (não RabbitMQ).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contract-service-config
+  namespace: energyhub
+  labels:
+    app: contract-service
+    app.kubernetes.io/part-of: energyhub
+data:
+  APP_NAME: "contract-service"
+  APP_PORT: "8003"
+  SERVICE_HOST: "contract-service"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"

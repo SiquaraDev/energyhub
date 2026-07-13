@@ -1,0 +1,82 @@
+# audit-service — Deployment (Fase 16). Trilha de auditoria (:8005, auditdb). Usa RabbitMQ.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-service
+  namespace: energyhub
+  labels:
+    app: audit-service
+    app.kubernetes.io/part-of: energyhub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: audit-service
+  template:
+    metadata:
+      labels:
+        app: audit-service
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      # Ver auth-service-deployment.yaml: evita colisão das env vars de Service (docker-links)
+      # do k8s com os campos `*_service_port` do Settings (pydantic).
+      enableServiceLinks: false
+      containers:
+        - name: audit-service
+          image: energyhub-audit-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8005
+          envFrom:
+            - configMapRef:
+                name: energyhub-config
+            - configMapRef:
+                name: audit-service-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: AUDIT_DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: RABBITMQ_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: SECRET_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          volumeMounts:
+            - name: service-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: service-config
+          configMap:
+            name: audit-service-config

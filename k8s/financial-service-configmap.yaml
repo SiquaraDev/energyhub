@@ -1,0 +1,16 @@
+# Config NÃO sensível do financial-service (Fase 16). Usa Kafka (não RabbitMQ).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: financial-service-config
+  namespace: energyhub
+  labels:
+    app: financial-service
+    app.kubernetes.io/part-of: energyhub
+data:
+  APP_NAME: "financial-service"
+  APP_PORT: "8004"
+  SERVICE_HOST: "financial-service"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"

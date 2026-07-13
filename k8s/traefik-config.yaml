@@ -1,0 +1,35 @@
+# Config estática do Traefik (Fase 16) — montada em /etc/traefik/traefik.yml.
+# Provider Consul-catalog apontando para o Service DNS do Consul no cluster (consul-service:8500).
+# NÃO usa o provider Docker (que não alcança o daemon no Windows) — o roteamento vem das tags
+# `traefik.*` que cada serviço publica no Consul ao se registrar.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: energyhub
+  labels:
+    app: traefik
+    app.kubernetes.io/part-of: energyhub
+data:
+  traefik.yml: |
+    entryPoints:
+      web:
+        address: ":80"
+
+    providers:
+      consulCatalog:
+        exposedByDefault: false
+        prefix: traefik
+        connectAware: false
+        endpoint:
+          address: "consul-service:8500"
+          scheme: http
+
+    accessLog: {}
+
+    log:
+      level: INFO
+
+    api:
+      dashboard: true
+      insecure: true

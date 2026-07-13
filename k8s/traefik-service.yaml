@@ -1,0 +1,23 @@
+# Traefik — Service LoadBalancer (Fase 16). Borda da plataforma: um endereço externo que
+# encaminha para os pods do gateway. Em minikube/kind o IP externo vem de `minikube tunnel` /
+# `cloud-provider-kind`; o Ingress (ingress.yaml) também aponta para este Service.
+# `web` (:80) é o tráfego da API; `dashboard` (:8080) é o painel do Traefik (apenas dev).
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-service
+  namespace: energyhub
+  labels:
+    app: traefik
+    app.kubernetes.io/part-of: energyhub
+spec:
+  type: LoadBalancer
+  selector:
+    app: traefik
+  ports:
+    - name: web
+      port: 80
+      targetPort: 80
+    - name: dashboard
+      port: 8080
+      targetPort: 8080

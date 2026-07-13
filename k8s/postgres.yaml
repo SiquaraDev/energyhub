@@ -1,0 +1,115 @@
+# PostgreSQL in-cluster (Fase 16) — backend stateful compartilhado com um banco por serviço.
+#
+# Decisão (Open Question #3 do design): para o cluster LOCAL/dev os data stores rodam DENTRO do
+# cluster, endereçados por DNS (`postgres-service`). Em produção, troque para um managed store
+# externo apenas ajustando as URLs no Secret — nenhum outro manifesto muda.
+#
+# initdb: o ConfigMap `postgres-initdb` é montado em /docker-entrypoint-initdb.d e cria os 5
+# bancos (authdb/clientdb/contractdb/financialdb/auditdb) no PRIMEIRO boot com volume vazio.
+# O seed do admin acontece DEPOIS (Job pós-deploy), pois as tabelas só existem após o
+# `metadata.create_all` de cada serviço. Dev usa emptyDir (efêmero) — troque por PVC p/ persistir.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  namespace: energyhub
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: energyhub
+data:
+  01-create-databases.sql: |
+    -- Um banco por microsserviço (database-per-service, Fase 15).
+    CREATE DATABASE authdb;
+    CREATE DATABASE clientdb;
+    CREATE DATABASE contractdb;
+    CREATE DATABASE financialdb;
+    CREATE DATABASE auditdb;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: energyhub
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: energyhub
+spec:
+  replicas: 1            # backend stateful — instância única em dev (sem HPA)
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "energyhub"
+            - name: POSTGRES_USER
+              value: "energyhub"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "energyhub", "-d", "energyhub"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "energyhub", "-d", "energyhub"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: initdb
+          configMap:
+            name: postgres-initdb
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: energyhub
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: energyhub
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

@@ -1,0 +1,77 @@
+# financial-service — Deployment (Fase 16). Faturas (:8004, financialdb). Usa Kafka (não RabbitMQ).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: financial-service
+  namespace: energyhub
+  labels:
+    app: financial-service
+    app.kubernetes.io/part-of: energyhub
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: financial-service
+  template:
+    metadata:
+      labels:
+        app: financial-service
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      # Ver auth-service-deployment.yaml: evita colisão das env vars de Service (docker-links)
+      # do k8s com os campos `*_service_port` do Settings (pydantic).
+      enableServiceLinks: false
+      containers:
+        - name: financial-service
+          image: energyhub-financial-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8004
+          envFrom:
+            - configMapRef:
+                name: energyhub-config
+            - configMapRef:
+                name: financial-service-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: FINANCIAL_DATABASE_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: energyhub-secret
+                  key: SECRET_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          volumeMounts:
+            - name: service-config
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: service-config
+          configMap:
+            name: financial-service-config

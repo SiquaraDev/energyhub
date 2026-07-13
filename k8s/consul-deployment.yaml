@@ -1,0 +1,61 @@
+# Consul — service discovery (Fase 16). Cada microsserviço se registra aqui no startup
+# (register_with_consul) e o Traefik lê o catálogo p/ montar rotas. Modo -bootstrap single-node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consul
+  namespace: energyhub
+  labels:
+    app: consul
+    app.kubernetes.io/part-of: energyhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consul
+  template:
+    metadata:
+      labels:
+        app: consul
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      containers:
+        - name: consul
+          image: hashicorp/consul:1.19
+          imagePullPolicy: IfNotPresent
+          args: ["agent", "-server", "-bootstrap", "-ui", "-client=0.0.0.0"]
+          ports:
+            - name: http
+              containerPort: 8500
+            - name: dns-tcp
+              containerPort: 8600
+            - name: dns-udp
+              containerPort: 8600
+              protocol: UDP
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /v1/status/leader
+              port: 8500
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /v1/status/leader
+              port: 8500
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /consul/data
+      volumes:
+        - name: data
+          emptyDir: {}

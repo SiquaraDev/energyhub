@@ -23,7 +23,7 @@ mantendo o sistema funcional a cada etapa.
 
 > **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 15
 > estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.15.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 16 — Orquestração com Kubernetes**.
+> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 17 — Automação CI/CD com GitHub Actions**.
 > As **Fases 16–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
@@ -401,13 +401,15 @@ Reconciliações: registro no Consul via **API HTTP** (`httpx`) em vez de `pytho
 **Consul-catalog** (o provider Docker do Traefik não alcança o daemon no Windows). Placeholders de
 credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
-### 📋 Fase 16 — Orquestração com Kubernetes · `0.16.0`
+### ✅ Fase 16 — Orquestração com Kubernetes · `0.16.0` _(concluída)_
 **Objetivo:** declarar toda a topologia como manifestos Kubernetes — serviços distribuídos, auto-recuperáveis, com autoscaling e um único ponto de entrada externo.
 
 **Entregáveis:**
 - `service-deployments` (réplicas, _requests/limits_, _probes_ em `/health`) · `configuration-and-secrets` (namespace `energyhub`, ConfigMaps + Secrets)
 - `service-networking` (ClusterIP + LoadBalancer) · `ingress-routing` · `horizontal-autoscaling` (HPA v2, CPU ~70% / mem ~80%)
 - `cluster-deployment-validation`
+
+> **Entregue:** árvore `k8s/` (40 manifestos) + backends stateful in-cluster, validada em **minikube** (Kubernetes v1.35): pods `Running`/ready, DNS inter-serviço, HPA escalando `2↔5`, e login→cliente→contrato pelo gateway (`ingress → Traefik → serviço`). Guia em [`k8s/README.md`](../k8s/README.md); arquitetura em [ARCHITECTURE §21](./ARCHITECTURE.md). **Próxima: Fase 17 — CI/CD.**
 
 ### 📋 Fase 17 — Automação CI/CD com GitHub Actions · `1.0.0` 🎉
 **Objetivo:** automatizar build, testes, publicação de imagens e _deploy_ em Kubernetes com _rollback_ — tornando a plataforma **continuamente entregue e pronta para produção**.

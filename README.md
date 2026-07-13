@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 15 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** **Fases 0 a 16 concluídas** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -76,7 +76,11 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > microsserviços** (⚠️ _breaking_): **auth/client/contract/financial/audit** como serviços FastAPI
 > independentes (banco por serviço), com **service discovery** (Consul), **comunicação HTTP resiliente**
 > entre serviços (`httpx` + `tenacity`) e um **API gateway** (Traefik) roteando por prefixo de caminho.
-> **Próxima: Fase 16** (orquestração com Kubernetes). Consulte o
+> E, por fim, toda a plataforma está declarada como **manifestos Kubernetes** ([`k8s/`](k8s/)): um
+> `Deployment`/`Service`/`HPA` por serviço (réplicas, _probes_ `/health`, autoscaling 2–5 por CPU/memória),
+> `ConfigMap`s/`Secret`, `LoadBalancer` (Traefik) + `Ingress` (NGINX) na borda e backends stateful
+> in-cluster — validada em **minikube** (login→cliente→contrato pelo gateway, HPA escalando 2↔5).
+> **Próxima: Fase 17** (automação CI/CD com GitHub Actions). Consulte o
 > [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
 
 ---

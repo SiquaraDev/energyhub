@@ -9,9 +9,9 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 > _release_ estável**. As entradas de versão abaixo (`0.0.0` → `1.0.0`) representam os
 > **marcos do projeto**, cada um correspondendo a uma das 18 fases especificadas em
 > [`openspec/changes/`](../openspec/changes/) e detalhadas no [ROADMAP](./ROADMAP.md).
-> As **Fases 0–15** (`0.0.0` → `0.15.0`) já foram **✅ implementadas e validadas**; as
-> versões **`0.16.0` em diante** seguem marcadas como **🔮 Planejado** e sem data definida
-> até serem implementadas e validadas.
+> As **Fases 0–16** (`0.0.0` → `0.16.0`) já foram **✅ implementadas e validadas**; a
+> versão **`1.0.0`** (Fase 17) segue marcada como **🔮 Planejado** e sem data definida
+> até ser implementada e validada.
 
 Categorias utilizadas: **Adicionado** (novas funcionalidades), **Alterado** (mudanças em
 funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descontinuado** e
@@ -24,7 +24,7 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 Estado atual do repositório (fora dos marcos versionados abaixo):
 
 ### Adicionado
-- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **102 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14 + 6 da Fase 15).
+- Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **108 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14 + 6 da Fase 15 + 6 da Fase 16).
 - Aplicação FastAPI (`energyhub.main:app`) com endpoints `/` e `/health` e CORS de desenvolvimento, sobre layout `src` (`src/energyhub/`).
 - **Esqueleto Clean Architecture já implementado e validado**: 9 módulos × 4 camadas (**211 `__init__.py`**) e as **classes-base compartilhadas** (`BaseEntity`, `Repository`, hierarquia `DomainException`, `BaseDTO`, `UseCase`, `SQLAlchemyRepository`, `BaseRouter`, _exception handler_ global, `ErrorResponse`) — não é mais apenas _scaffolding_.
 - **Schema PostgreSQL versionado (Fase 4):** ambiente Alembic (`alembic/`, `alembic.ini`, `env.py`), `Base` declarativa (`shared/infrastructure/persistence/database.py`), 8 migrações (15 tabelas, 42 índices, 4 CHECK, 13 triggers `updated_at`) e _seed_ do admin; marcador `py.typed` no pacote.
@@ -39,6 +39,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Suíte de testes e gate de cobertura (Fase 13):** toolchain `pytest`/`pytest-asyncio`/`pytest-mock`/`pytest-cov`/`testcontainers` (grupo `dev`) e `[tool.pytest.ini_options]` com gate embutido (`--cov=energyhub --cov-fail-under=80`); testes unitários dos 15 serviços com colaboradores `AsyncMock`, testes de componente dos 13 routers via `TestClient`, e integração (repositórios via `PostgresContainer` + API via `TestClient` com JWT real); `docker-compose.test.yml` (PG/Redis/RabbitMQ em 5433/6380/5673); cobertura **87% in-container** (85% no host, com a integração pulada).
 - **Containerização e orquestração (Fase 14):** `Dockerfile` multi-stage (build com Poetry `--only main` → runtime `python:3.12-slim`, não-root `appuser`, `EXPOSE 8000`, `CMD uvicorn`) + `.dockerignore`; `docker-compose.yml` estendido com o serviço **`energyhub-api`** e toda a infra numa rede bridge `energyhub-network`, `restart: unless-stopped`, **startup health-gated** (`depends_on: service_healthy`) e config 12-factor por variável de ambiente (URLs por nome de serviço); volumes nomeados para todos os serviços com estado + AOF do Redis; Prometheus passa a scrapear `energyhub-api:8000`. A stack sobe com **um comando** (`docker compose up -d`).
 - **Microsserviços + gateway (Fase 15, ⚠️ _breaking_):** monólito decomposto em **5 serviços FastAPI independentes** (`services/auth|client|contract|financial|audit-service/`, portas 8001–8005), cada um com projeto/config/Dockerfile próprios, `mapping.py` enxuto e **banco dedicado**; **Consul** para service discovery (registro + health check + resolução por nome); clientes **`httpx`** (`AuthClient`/`ClientClient`/`ContractClient`) substituindo as chamadas in-process, com **resiliência** (`tenacity`: timeout + retry/backoff + fallback); **Traefik** roteando por prefixo de caminho via catálogo do Consul, com middlewares de borda (auth/logging/rate limit); decomposição documentada em `docs/bounded-contexts.md`.
+- **Orquestração com Kubernetes (Fase 16):** árvore `k8s/` (40 manifestos) declarando toda a plataforma — `Namespace` `energyhub`, `Deployment`+`Service`+`HPA` por serviço (réplicas, _requests/limits_, _probes_ `/health`), `ConfigMap`s/`Secret`, `LoadBalancer` (Traefik) + `Ingress` (NGINX) na borda, e backends stateful in-cluster (Postgres/Redis/RabbitMQ/Kafka/Zookeeper). Autoscaling por CPU/memória (2–5 réplicas) via **Metrics Server**. Validado em **minikube** (login→cliente→contrato pelo gateway, HPA escalando 2↔5). Guia em `k8s/README.md`; detalhes em `docs/ARCHITECTURE.md` (§21).
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
 
@@ -63,18 +64,30 @@ a plataforma torna-se **continuamente entregue e pronta para produção**.
 
 ---
 
-## [0.16.0] — 🔮 Planejado · _Fase 16 · Kubernetes_
+## [0.16.0] — 2026-07-13 · ✅ Lançado · _Fase 16 · Kubernetes_
 
 Toda a topologia declarada como manifestos Kubernetes: serviços distribuídos,
-auto-recuperáveis, com autoscaling e um único ponto de entrada externo.
+auto-recuperáveis, com autoscaling e um único ponto de entrada externo. Validado num
+cluster **minikube** local (Kubernetes v1.35). Guia em [`k8s/README.md`](../k8s/README.md).
 
 ### Adicionado
-- Árvore de manifestos `k8s/` com `Namespace` `energyhub` e um conjunto por serviço (auth, client, contract, financial, audit) + componentes de plataforma (Consul, gateway).
-- Um `Deployment` por serviço com réplicas, _requests/limits_ e _probes_ de _liveness/readiness_ em `/health`.
-- `ConfigMaps` (configuração não sensível) e `Secrets` (senha do banco/RabbitMQ, `SECRET_KEY`/JWT), injetados via `valueFrom` e volumes.
-- `Service` por workload — `ClusterIP` para DNS interno e `LoadBalancer` para a borda.
-- `Ingress` + _ingress controller_ roteando tráfego externo por host/path até o _gateway_.
-- `HorizontalPodAutoscaler` (autoscaling/v2) por serviço, com alvos de CPU (~70%) e memória (~80%) e limites de réplicas (2–5), via _Metrics Server_.
+- Árvore de manifestos `k8s/` (40 documentos YAML) com `Namespace` `energyhub` e um conjunto por serviço (auth, client, contract, financial, audit) + componentes de plataforma (Consul, Traefik) + backends stateful.
+- Um `Deployment` por serviço com `replicas: 2`, _requests/limits_ e _probes_ de _liveness/readiness_ em `/health`; DNS do cluster (`consul-service`, `postgres-service`, …) substitui os hostnames do Compose.
+- `ConfigMaps` (configuração não sensível) e um `Secret` (senhas + `*_DATABASE_URL`/`RABBITMQ_URL` que embutem a senha + `SECRET_KEY`), injetados via `envFrom`/`valueFrom` e volume de config.
+- `Service` por workload — `ClusterIP` para DNS interno e `LoadBalancer` (Traefik) para a borda; `Ingress` (classe `nginx`) roteando `energyhub.local` até o _gateway_.
+- `HorizontalPodAutoscaler` (autoscaling/v2) por serviço — CPU ~70% / memória ~80%, réplicas 2–5 — via **Metrics Server**.
+- **Backends stateful in-cluster** (Postgres com _initdb_ dos 5 bancos, Redis, RabbitMQ, Kafka, Zookeeper) para um cluster de dev autocontido — em produção troca-se para managed stores externos ajustando só as URLs no `Secret`.
+
+### Corrigido
+- **`enableServiceLinks: false`** nos 5 serviços: as env vars estilo docker-links que o k8s injeta por Service (ex.: `AUTH_SERVICE_PORT=tcp://…`) colidiam com os campos `*_service_port` do `Settings` (pydantic) e quebravam o startup.
+- **Kafka** sob k8s: `KAFKA_HEAP_OPTS=-Xmx512m` (evita `OOMKilled`), `strategy: Recreate` (evita disputa de `broker.id` no Zookeeper no rollout) e `publishNotReadyAddresses: true` no Service (o broker se alcança antes do _readiness_).
+
+### Validado
+- Todos os pods `Running`/ready; endpoints ligados a pods prontos; comunicação inter-serviço por DNS do cluster; login → criar cliente → criar contrato **pelo gateway** (`200/201/201`); HPA escalando `2 → 5` sob carga e recolhendo para `2`.
+
+### Notas
+- **Herdado da Fase 15 (fora do escopo da orquestração):** `register_with_consul` usa `service_id = {name}-{port}` (não único por réplica) — sob `replicas > 1` + rotatividade, o desregistro de uma réplica remove o serviço do Consul; correção adequada (ID por pod) é mudança de imagem. A trilha de auditoria não é auto-populada (nenhum produtor publica na fila `audit`).
+- ⚠️ Credenciais placeholder (admin/`ChangeMe123!`, senhas, `SECRET_KEY`, `Secret` só em base64) — rotacionar e migrar para _secret manager_ real antes de qualquer uso não-local.
 
 ---
 

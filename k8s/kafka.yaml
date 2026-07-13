@@ -1,0 +1,101 @@
+# Kafka in-cluster (Fase 16) — streams de contract/financial. Um único listener, anunciado como
+# `kafka-service:9092` (DNS do cluster), já que todos os clientes vivem dentro do cluster.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: energyhub
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: energyhub
+spec:
+  replicas: 1
+  # Recreate: encerra o broker antigo ANTES de subir o novo. Com RollingUpdate os dois pods
+  # coexistem e tentam registrar o mesmo broker.id=1 no Zookeeper → NodeExists e crash. Broker
+  # único num Deployment exige Recreate (o shutdown gracioso limpa o znode efêmero antes do novo).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: kafka
+              containerPort: 9092
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: "zookeeper-service:2181"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka-service:9092"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            # Heap explícito — o default do cp-kafka (-Xmx1G) sozinho estoura o limite do
+            # container e causa OOMKilled. 512m de heap + overhead da JVM cabem em 1.25Gi.
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xmx512m -Xms512m"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "768Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1536Mi"
+          readinessProbe:
+            exec:
+              command: ["kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 8
+          livenessProbe:
+            exec:
+              command: ["kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-service
+  namespace: energyhub
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: energyhub
+spec:
+  type: ClusterIP
+  # O broker precisa alcançar a si mesmo pelo endereço anunciado (kafka-service:9092) já DURANTE
+  # o startup, antes do readinessProbe passar. Sem isto o Service não tem endpoint (exclui pods
+  # não-ready) e o controller não conecta no próprio broker → nunca fica ready (deadlock).
+  publishNotReadyAddresses: true
+  selector:
+    app: kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
