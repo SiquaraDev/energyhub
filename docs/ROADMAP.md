@@ -3,13 +3,16 @@
 > Plano de evolução da plataforma **EnergyHub**, uma plataforma de negociação de energia
 > construída com **FastAPI**, **Clean Architecture** e **Domain-Driven Design** em **Python 3.12+**.
 
-Este roadmap consolida as **18 fases** especificadas em [`openspec/changes/`](../openspec/changes/).
-Cada fase é uma _change_ do [OpenSpec](https://github.com/openspec) (fluxo _spec-driven_) com
+Este roadmap consolida as **18 fases** ([`openspec/changes/archive/`](../openspec/changes/archive/))
+e as **5 propostas de endurecimento pós-`1.0.0`** ([`openspec/changes/`](../openspec/changes/)).
+Cada _change_ é do [OpenSpec](https://github.com/openspec) (fluxo _spec-driven_) com
 `proposal.md`, `design.md`, `tasks.md` e um conjunto de _specs_ de capacidades.
 
 O caminho vai do **planejamento** (Fase 0) até uma plataforma de microsserviços
 **pronta para produção com CI/CD** (Fase 17), evoluindo de forma incremental e sempre
-mantendo o sistema funcional a cada etapa.
+mantendo o sistema funcional a cada etapa — seguido de um ciclo de **endurecimento
+pós-`1.0.0`** (segurança, supply-chain, correções de microsserviços, robustez do Kubernetes
+e validação da esteira ao vivo) antes de qualquer uso não-local.
 
 ---
 
@@ -21,17 +24,20 @@ mantendo o sistema funcional a cada etapa.
 | 🚧 Em andamento | Implementação iniciada |
 | 📋 Planejado | Especificação (OpenSpec) pronta; implementação ainda não iniciada |
 
-> **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 15
-> estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.15.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). 🎉 **Todas as 18 fases (0–17) estão concluídas — roadmap completo, marco `1.0.0`.**
-> As **Fases 16–17 permanecem 📋 Planejadas**. Consulte o
+> **Estado atual:** 🎉 **Todas as 18 fases (0–17) estão CONCLUÍDAS e arquivadas** (versões `0.1.0`
+> a `1.0.0`) — roadmap das fases completo, marco `1.0.0`; a implementação seguiu o **layout `src`**
+> (`src/energyhub/`). Em seguida, um ciclo de **endurecimento pós-`1.0.0`** adicionou **5 novas
+> propostas OpenSpec** (📋 _Planejadas_ — _specs_ prontas e validadas com `openspec validate --strict`,
+> implementação a iniciar em ordem) cobrindo **segurança**, **supply-chain do CI/CD**, **correções dos
+> microsserviços**, **robustez do Kubernetes** e **validação da esteira ao vivo**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
 ---
 
 ## 🧭 Visão geral por etapas
 
-As 18 fases estão agrupadas em **7 etapas** que representam grandes marcos do produto:
+As 18 fases estão agrupadas em **7 etapas** (0–6) que representam grandes marcos do produto; um
+**oitavo grupo** reúne as propostas de endurecimento **pós-`1.0.0`**:
 
 | Etapa | Fases | Foco | Versões |
 | :---- | :---- | :--- | :------ |
@@ -42,6 +48,7 @@ As 18 fases estão agrupadas em **7 etapas** que representam grandes marcos do p
 | **4 · Escala & Operação** | 9–12 | Cache, mensageria, busca e observabilidade | `0.9.0` – `0.12.0` |
 | **5 · Qualidade & Empacotamento** | 13–14 | Testes automatizados e containerização | `0.13.0` – `0.14.0` |
 | **6 · Distribuição & Entrega** | 15–17 | Microsserviços, Kubernetes e CI/CD | `0.15.0` – `1.0.0` |
+| **7 · Endurecimento (pós-`1.0.0`)** | — | Segurança, supply-chain, correções de microsserviços, robustez k8s e validação da esteira | pós-`1.0.0` (📋) |
 
 ```mermaid
 timeline
@@ -69,6 +76,12 @@ timeline
         Fase 15 · Microsserviços : Gateway + service discovery
         Fase 16 · Kubernetes  : Deployments + HPA + Ingress
         Fase 17 · CI/CD       : GitHub Actions + rollback
+    section Endurecimento (pós-1.0.0)
+        Segurança         : Credenciais + secret manager + TLS
+        Supply-chain      : Actions por SHA + branch protection
+        Microsserviços    : Consul service_id + produtor audit
+        Robustez k8s      : Kustomize + Kafka KRaft + PVCs
+        Esteira ao vivo   : Pipeline verde no GitHub + evidências
 ```
 
 ---
@@ -423,6 +436,67 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
 ---
 
+## 🛡️ Etapa 7 — Endurecimento & Pós-`1.0.0`
+
+> Com o marco `1.0.0` atingido, estas **5 propostas OpenSpec** (📋 _Planejadas_) endurecem a
+> plataforma para uso **não-local**. Cada uma tem `proposal.md`/`design.md`/`tasks.md`/`specs/`
+> prontos e **validados com `openspec validate --strict`**; a implementação ainda **não começou**
+> e por isso não recebem número de versão. **Ordem recomendada — segurança primeiro:**
+> `harden-security-credentials` → `harden-cicd-supply-chain` → `fix-microservices-gaps` →
+> `k8s-production-robustness` → `validate-pipeline-live`.
+
+### 📋 `harden-security-credentials` — Endurecimento de Segurança _(planejada · 38 tarefas)_
+**Objetivo:** fechar os riscos de segurança que hoje bloqueiam qualquer _deploy_ não-local —
+credenciais placeholder versionadas e superfícies de _dev_ abertas — **antes** de qualquer uso real.
+
+**Entregáveis (capacidades):**
+- `credential-rotation` — rotação de `SECRET_KEY`, admin, Grafana, Postgres e RabbitMQ (sem defaults versionados)
+- `production-credential-validation` — o perfil `production` falha rápido diante de credencial placeholder/vazia
+- `internal-admin-surface-hardening` — `/internal/*`, dashboard do Traefik e UI do Consul exigem auth/restrição
+- `edge-tls-termination` — cert-manager + TLS no Ingress + redirect HTTP→HTTPS
+- `network-policy-segmentation` — NetworkPolicies _default-deny_ + _allow_ de menor privilégio
+- _(modificadas)_ `configuration-and-secrets` (sem segredo em texto puro; secret manager) · `database-seed-data` (senha do admin via secret, não o hash `ChangeMe123!`)
+
+### 📋 `harden-cicd-supply-chain` — Endurecimento da Supply-Chain do CI/CD _(planejada · 27 tarefas)_
+**Objetivo:** endurecer a cadeia de suprimentos da esteira da Fase 17 — _actions_ em _tags_ móveis,
+`master` sem _checks_ obrigatórios e imagens GHCR privadas que o cluster não consegue puxar.
+
+**Entregáveis (capacidades):**
+- `github-actions-sha-pinning` — todas as `uses:` fixadas por _commit SHA_ (+ comentário de versão, Dependabot)
+- `branch-protection-rules` — `master`/`main` protegidos: _checks_ `build`/`test` + _review_ obrigatórios, sem _push_ direto
+- `cluster-image-pull-authentication` — `imagePullSecret` (`dockerconfigjson`) do GHCR (ou pacotes públicos)
+- `workflow-supply-chain-hardening` — `permissions` de menor privilégio, `concurrency` e _provenance_/SBOM
+
+### 📋 `fix-microservices-gaps` — Correção das Lacunas dos Microsserviços _(planejada · 20 tarefas)_
+**Objetivo:** fechar as duas lacunas herdadas da Fase 15 e expostas pelo _multi-replica_/HPA da Fase 16.
+
+**Entregáveis (capacidades):**
+- `audit-event-production` _(nova)_ — `AuditEventProducer` publicando na fila `audit` (payload compatível com o consumidor)
+- _(modificada)_ `service-discovery` — `service_id` único por instância (pod `HOSTNAME`/UUID) + _deregister_ próprio no shutdown
+- _(modificada)_ `domain-event-producers` — todo create/update/delete emite evento de auditoria (efeito colateral não-bloqueante)
+
+### 📋 `k8s-production-robustness` — Robustez de Produção no Kubernetes _(planejada · 25 tarefas)_
+**Objetivo:** tornar o _deploy_ da Fase 16 robusto para produção — _pin_ de imagem imperativo,
+Kafka com Zookeeper e backends em `emptyDir`.
+
+**Entregáveis (capacidades):**
+- `kustomize-image-pinning` _(nova)_ — transformer `images:` declarativo fixa cada imagem no _commit SHA_ (aposenta o `kubectl set image`)
+- `kustomize-environment-overlays` _(nova)_ — _base_ Kustomize + _overlays_ `dev`/`prod`
+- _(modificadas)_ `data-persistence-volumes` (emptyDir→PVC p/ Postgres+Kafka) · `messaging-and-streaming-containers` (Kafka `StatefulSet` em **KRaft**, sem Zookeeper) · `kubernetes-deploy-automation` (apply via _overlay_ Kustomize)
+
+### 📋 `validate-pipeline-live` — Validação da Esteira ao Vivo _(planejada · 40 tarefas)_
+**Objetivo:** provar a esteira da Fase 17 **verde de verdade** nos _runners_ do GitHub (até aqui só
+validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue continuamente".
+
+**Entregáveis (capacidades):**
+- `live-pipeline-execution` — 1º _run_ verde de Build/Test/Docker/CI-CD nos _runners_ hospedados
+- `ghcr-publication-verification` — 5 imagens em `ghcr.io/siquaradev/energyhub-<serviço>` com tags `:latest` + `:SHA`
+- `ephemeral-deploy-drill-validation` — _deploy_ em kind-in-CI + _dry-run_ + prontidão do core + _drill_ de rollback
+- `repository-secret-configuration` — configurar (ou confirmar degradação graciosa) de `CODECOV_TOKEN`/`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`
+- `pipeline-validation-record` — captura de evidências (URLs/logs), _fix-forward_ do 1º _run_ e registro datado
+
+---
+
 ## 🔗 Mapa de dependências entre fases
 
 | Fase | Depende de |
@@ -445,6 +519,11 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 | 15 · Microsserviços | 12, 14 |
 | 16 · Kubernetes | 14, 15 |
 | 17 · CI/CD | 1, 13, 15, 16 |
+| 🛡️ harden-security-credentials _(pós-1.0.0)_ | 7, 12, 15, 16 |
+| 🔗 harden-cicd-supply-chain _(pós-1.0.0)_ | 16, 17 |
+| 🧩 fix-microservices-gaps _(pós-1.0.0)_ | 10, 15, 16 |
+| ☸️ k8s-production-robustness _(pós-1.0.0)_ | 16, 17 |
+| 🚀 validate-pipeline-live _(pós-1.0.0)_ | 16, 17 |
 
 ---
 
@@ -456,4 +535,4 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
 ---
 
-<sub>Documento gerado a partir das 18 changes OpenSpec do EnergyHub · fluxo _spec-driven_.</sub>
+<sub>Documento gerado a partir das 18 fases + 5 propostas de endurecimento pós-`1.0.0` (23 changes OpenSpec) do EnergyHub · fluxo _spec-driven_.</sub>
