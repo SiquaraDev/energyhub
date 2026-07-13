@@ -1,0 +1,100 @@
+# Test — roda a suíte contra Postgres/Redis reais (service containers) — Fase 17 · CI.
+# Roda em push para main/master/develop/feature/* e em PR para main/master/develop.
+#
+# Reconciliação: o repo NÃO tem diretórios tests/unit e tests/integration nem o marcador
+# @pytest.mark.integration — a integração é SKIP-GUARDED (pula se o Postgres do `DATABASE_URL`
+# não responde). Então "unit" e "integração" viram DOIS passos distintos pela presença/ausência
+# do banco: o passo unit aponta DATABASE_URL para um endpoint morto (integração se pula, ~84%);
+# o passo de integração aponta para os service containers (integração roda).
+name: Test
+
+on:
+  push:
+    branches: [main, master, develop, "feature/*"]
+  pull_request:
+    branches: [main, master, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: energyhub
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: energyhub_test
+          POSTGRES_USER: energyhub
+          POSTGRES_PASSWORD: energyhub123
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U energyhub -d energyhub_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: |
+          poetry env use python
+          poetry install --no-interaction
+
+      # Unit & componente: DATABASE_URL num endpoint morto → os fixtures de integração se pulam.
+      - name: Unit & component tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://none:none@127.0.0.1:1/none
+        run: poetry run pytest --cov=energyhub --cov-report=xml:coverage-unit.xml
+
+      # Cria o schema por migrações (o monólito não usa create_all no boot) antes da integração —
+      # senão os testes rodam contra um Postgres vazio e falham. env.py é async-aware (asyncpg).
+      - name: Apply database schema (migrations)
+        env:
+          DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@localhost:5433/energyhub_test
+        run: poetry run alembic upgrade head
+
+      # Integração: DATABASE_URL/REDIS_URL apontando para os service containers (health-checked).
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@localhost:5433/energyhub_test
+          REDIS_URL: redis://localhost:6380/0
+          REDIS_HOST: localhost
+          REDIS_PORT: "6380"
+        run: poetry run pytest --cov=energyhub --cov-report=xml:coverage-integration.xml
+
+      # Resultados enviados MESMO em falha (if: always()) para diagnóstico de runs vermelhos.
+      - name: Upload test/coverage results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            energyhub/coverage-unit.xml
+            energyhub/coverage-integration.xml
+            energyhub/htmlcov
+          if-no-files-found: ignore

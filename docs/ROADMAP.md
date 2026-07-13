@@ -23,7 +23,7 @@ mantendo o sistema funcional a cada etapa.
 
 > **Estado atual:** as especificações OpenSpec das **18 fases estão completas**. As **Fases 0 a 15
 > estão CONCLUÍDAS e arquivadas** (versões `0.1.0` a `0.15.0`); a implementação seguiu o
-> **layout `src`** (`src/energyhub/`). A **próxima é a Fase 17 — Automação CI/CD com GitHub Actions**.
+> **layout `src`** (`src/energyhub/`). 🎉 **Todas as 18 fases (0–17) estão concluídas — roadmap completo, marco `1.0.0`.**
 > As **Fases 16–17 permanecem 📋 Planejadas**. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
 
@@ -411,13 +411,15 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
 > **Entregue:** árvore `k8s/` (40 manifestos) + backends stateful in-cluster, validada em **minikube** (Kubernetes v1.35): pods `Running`/ready, DNS inter-serviço, HPA escalando `2↔5`, e login→cliente→contrato pelo gateway (`ingress → Traefik → serviço`). Guia em [`k8s/README.md`](../k8s/README.md); arquitetura em [ARCHITECTURE §21](./ARCHITECTURE.md). **Próxima: Fase 17 — CI/CD.**
 
-### 📋 Fase 17 — Automação CI/CD com GitHub Actions · `1.0.0` 🎉
+### ✅ Fase 17 — Automação CI/CD com GitHub Actions · `1.0.0` 🎉 _(concluída)_
 **Objetivo:** automatizar build, testes, publicação de imagens e _deploy_ em Kubernetes com _rollback_ — tornando a plataforma **continuamente entregue e pronta para produção**.
 
 **Entregáveis:**
 - `build-automation-workflow` · `test-automation-workflow` (serviços Postgres/Redis) · `docker-image-build` (Buildx _matrix_ + cache)
 - `container-registry-publishing` (tags `:latest` e `:SHA`) · `kubernetes-deploy-automation`
 - `deployment-rollback-and-notifications` (`kubectl rollout undo` + alerta Slack) · `cicd-pipeline-orchestration` (`ci-cd.yml`)
+
+> **Entregue:** 5 workflows em `.github/workflows/` publicando as 5 imagens no **GHCR** e deployando em k8s com **rollback**; esteira `build→push→deploy` com validação de deploy grátis em **kind efêmero**. Validado localmente (`actionlint` limpo, `pytest` 83.9%, revisão adversarial); guia em [`docs/ci-cd.md`](./ci-cd.md). **🎉 Roadmap completo — `1.0.0`.**
 
 ---
 

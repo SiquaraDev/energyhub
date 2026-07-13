@@ -1187,7 +1187,36 @@ managed stores externos ajustando **só as URLs no Secret** — nenhum outro man
 
 ---
 
-## 🚀 22. Como adicionar uma nova entidade/módulo (próximas fases)
+## 🔁 22. Automação CI/CD (GitHub Actions · Fase 17)
+
+A Fase 17 fecha o ciclo: 5 workflows em [`.github/workflows/`](../.github/workflows/) que, a cada
+push, **constroem, testam, imageiam, publicam e deployam** com _rollback_. É **configuração** (YAML),
+não código de aplicação; consome o projeto Poetry (Fase 1), os testes (Fase 13), os `Dockerfile`s
+(Fase 15) e os manifestos `k8s/` (Fase 16). Guia completo em [`ci-cd.md`](./ci-cd.md).
+
+| Workflow | Papel |
+| :------- | :---- |
+| `build.yml` | `poetry build` + `pytest` (cobertura → Codecov) |
+| `test.yml` | Postgres/Redis _service containers_ + **migração Alembic** + unit/integração |
+| `docker.yml` | _matrix_ Buildx → 5 imagens no **GHCR** (`latest`+SHA, via `metadata-action`) |
+| `deploy.yml` | deploy real (`KUBE_CONFIG`) — `apply` + `rollout status`/`wait` + **rollback** + Slack |
+| `ci-cd.yml` | esteira `build-and-test → build-and-push → deploy` (`needs`), deploy validado em **kind efêmero** |
+
+**Decisões-chave.** Registry **GHCR** (grátis, `GITHUB_TOKEN`; Docker Hub/ECR como alternativa por
+config); imagens com tag **imutável por SHA** + `latest`; deploy com **pin por SHA** (rastreável,
+sem editar `k8s/`) e **auto-rollback** (`rollout undo`) na falha do _rollout_; secrets opcionais
+(`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`/`CODECOV_TOKEN`) fazem o pipeline **degradar sem quebrar** (o
+deploy real é pulado sem cluster). A validação _live_ de deploy roda **grátis num kind efêmero** no
+runner (aplica `k8s/`, aguarda o subconjunto core e faz um _drill_ de rollback) — sem cluster 24/7.
+
+> **Reconciliações (spec → realidade).** Gateway = **Traefik** (imagem oficial, não construída) → a
+> matrix cobre os 5 serviços; **`8398a7/action-slack` arquivado** → `slackapi/slack-github-action@v2`;
+> **integração skip-guarded** (não `tests/unit|integration`) → passos distintos por presença do banco;
+> **Alembic antes da integração** (o monólito cria o schema por migração, não no boot).
+
+---
+
+## 🚀 23. Como adicionar uma nova entidade/módulo (próximas fases)
 
 Passo a passo curto, aproveitando o esqueleto já existente:
 
@@ -1222,7 +1251,7 @@ Passo a passo curto, aproveitando o esqueleto já existente:
 
 ---
 
-## 📚 23. Referências
+## 📚 24. Referências
 
 - 📐 [Arquitetura planejada (Fase 0)](./fase-0/07-arquitetura.md) — o design de referência: 9
   módulos, 4 camadas, sub-pacotes normativos, agregados e regras de dependência.

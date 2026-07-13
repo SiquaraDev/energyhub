@@ -52,7 +52,7 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 - **Segurança e auditabilidade** — controle de acesso e trilha de auditoria completa
 - **Integridade financeira** — PostgreSQL normalizado (3FN) para dados transacionais
 
-> ⚙️ **Estado atual:** **Fases 0 a 16 concluídas** — o planejamento está completo
+> ⚙️ **Estado atual:** 🎉 **Todas as 18 fases (0 a 17) concluídas — marco `1.0.0`** — o planejamento está completo
 > ([`docs/fase-0`](docs/fase-0/)), o **modelo de domínio DDD** existe como **domínio puro**, o
 > **schema PostgreSQL** é versionado por **migrações Alembic**, a **camada de persistência**
 > (ORM async + 13 repositórios + filtros + paginação) lê e grava as tabelas, a **API REST** está
@@ -80,8 +80,12 @@ Prioridades de arquitetura definidas no planejamento (Fase 0):
 > `Deployment`/`Service`/`HPA` por serviço (réplicas, _probes_ `/health`, autoscaling 2–5 por CPU/memória),
 > `ConfigMap`s/`Secret`, `LoadBalancer` (Traefik) + `Ingress` (NGINX) na borda e backends stateful
 > in-cluster — validada em **minikube** (login→cliente→contrato pelo gateway, HPA escalando 2↔5).
-> **Próxima: Fase 17** (automação CI/CD com GitHub Actions). Consulte o
-> [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para acompanhar a evolução.
+> E, por fim, uma esteira de **CI/CD com GitHub Actions** ([`.github/workflows/`](.github/workflows/))
+> fecha o ciclo: a cada push, **build + testes** (com Postgres/Redis), **5 imagens publicadas no GHCR**
+> (`latest`+SHA) e **deploy em Kubernetes** com verificação de _rollout_ e **rollback** automático — a
+> esteira `build→push→deploy` valida o deploy num **kind efêmero** (grátis), com deploy real atrás do
+> secret `KUBE_CONFIG`. 🎉 **Todas as 18 fases (0–17) concluídas — marco `1.0.0`.** Consulte o
+> [ROADMAP](docs/ROADMAP.md) e o [CHANGELOG](docs/CHANGELOG.md) para o histórico completo.
 
 ---
 

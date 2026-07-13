@@ -1,0 +1,128 @@
+# Deploy — aplica os manifestos k8s/ num cluster REAL e verifica o rollout — Fase 17 · CD.
+# Roda em push para main/master. Requer o secret KUBE_CONFIG (kubeconfig do cluster alvo).
+#
+# Sem KUBE_CONFIG o job de deploy é PULADO (verde), não falha — assim o repo fica pronto para
+# plugar um cluster (EKS/GKE/Oracle/etc.) quando existir, sem quebrar o CI enquanto não há um.
+# A validação de deploy GRÁTIS e efêmera (kind no runner) fica no pipeline combinado ci-cd.yml.
+name: Deploy
+
+on:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  # Secrets não podem ser usados em `if:`; um job-gate mapeia o secret para env e emite um output
+  # booleano, e o job de deploy usa `needs: gate` + `if:` sobre esse output para pular limpo.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      has_kubeconfig: ${{ steps.check.outputs.has_kubeconfig }}
+    steps:
+      - id: check
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          if [ -n "$KUBE_CONFIG" ]; then
+            echo "has_kubeconfig=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_kubeconfig=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::KUBE_CONFIG ausente — deploy pulado (configure o secret para habilitar)."
+          fi
+
+  deploy:
+    needs: gate
+    if: needs.gate.outputs.has_kubeconfig == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # só inspeciona/puxa as imagens SHA do GHCR
+    # env de job (não de step) para o guard `if: env.SLACK_WEBHOOK_URL != ''` funcionar.
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure kubectl from secret
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+          # Se o secret estiver em base64, descomente:
+          # kubeconfig-encoding: base64
+
+      - name: Lowercase owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      # Namespace PRIMEIRO: `kubectl apply -f k8s/` aplica em ordem alfabética, então recursos
+      # namespaced (audit-*, auth-*, ...) chegariam ANTES de namespace.yaml num cluster novo e
+      # falhariam com "namespace not found". Aplicar o namespace antes garante a ordem.
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/
+
+      # docker.yml roda em paralelo (mesmo push) e pode ainda não ter publicado as imagens SHA.
+      # Espera-as no GHCR antes de fixá-las, senão o `set image` aponta para uma tag inexistente
+      # (ImagePullBackOff → rollout falha → rollback). Precisa de login (imagens privadas por padrão).
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for images (SHA) to be published
+        run: |
+          for s in auth client contract financial audit; do
+            ref="ghcr.io/${OWNER}/energyhub-${s}-service:${GITHUB_SHA}"
+            found=""
+            for i in $(seq 1 20); do
+              if docker manifest inspect "$ref" >/dev/null 2>&1; then found=1; echo "found $ref"; break; fi
+              echo "waiting for $ref ($i/20)..."; sleep 15
+            done
+            [ -n "$found" ] || { echo "::error::timeout esperando $ref (o build de imagens publicou?)"; exit 1; }
+          done
+
+      # Fixa a imagem de cada serviço na tag imutável do commit (SHA), publicada pelo docker.yml —
+      # resolve a Open Question #1 (rastreabilidade) SEM editar os manifestos em k8s/ (o nome do
+      # container == nome do deployment == <svc>-service).
+      - name: Pin images to this commit (SHA)
+        run: |
+          for s in auth client contract financial audit; do
+            kubectl -n energyhub set image "deployment/${s}-service" \
+              "${s}-service=ghcr.io/${OWNER}/energyhub-${s}-service:${GITHUB_SHA}"
+          done
+
+      # Verifica o rollout dos deployments-chave e FALHA se algum não completar (dispara rollback).
+      - name: Verify rollout
+        run: |
+          for d in auth-service client-service contract-service financial-service audit-service traefik; do
+            kubectl -n energyhub rollout status "deployment/${d}" --timeout=300s
+          done
+
+      - name: Wait for availability
+        run: |
+          kubectl -n energyhub wait --for=condition=available --timeout=300s \
+            deployment/auth-service deployment/client-service deployment/traefik
+
+      # Self-healing: qualquer falha acima reverte os serviços para a revisão anterior boa.
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          for s in auth client contract financial audit; do
+            kubectl -n energyhub rollout undo "deployment/${s}-service" || true
+          done
+
+      # Notifica no Slack só em falha e só se o webhook estiver configurado (no-op sem o secret).
+      - name: Notify Slack on failure
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: ":x: EnergyHub deploy FALHOU em `${{ github.ref_name }}` (${{ github.sha }}) — rollback acionado. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

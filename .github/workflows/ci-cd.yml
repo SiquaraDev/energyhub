@@ -1,0 +1,198 @@
+# CI/CD Pipeline — esteira completa encadeada por `needs` — Fase 17.
+#   build-and-test → build-and-push → deploy
+# É o caminho ponta-a-ponta gated para main/master, e a VALIDAÇÃO DE DEPLOY GRÁTIS: o job `deploy`
+# sobe um cluster kind EFÊMERO no próprio runner, carrega as imagens recém-publicadas, aplica
+# k8s/ e confere rollout + rollback — sem depender de nenhum cluster externo 24/7.
+# (O deploy num cluster REAL fica em deploy.yml, atrás do secret KUBE_CONFIG.)
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+
+# Escopo mínimo por padrão; cada job eleva só o que precisa (packages: write no push, read no deploy).
+permissions:
+  contents: read
+
+jobs:
+  # ---- Estágio 1: build + testes (gate de qualidade) --------------------------------------------
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: energyhub
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: energyhub_test
+          POSTGRES_USER: energyhub
+          POSTGRES_PASSWORD: energyhub123
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U energyhub -d energyhub_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: snok/install-poetry@v1
+        with:
+          virtualenvs-in-project: true
+      - name: Install dependencies
+        run: |
+          poetry env use python
+          poetry install --no-interaction
+      - name: Build package
+        run: poetry build
+      # O monólito cria o schema por MIGRAÇÕES (não por create_all no boot). Sem isto, a integração
+      # roda contra um Postgres vazio (o service container É alcançável no runner) e falha com
+      # "relation does not exist". alembic/env.py é async-aware (usa asyncpg + settings.database_url).
+      - name: Apply database schema (migrations)
+        env:
+          DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@localhost:5433/energyhub_test
+        run: poetry run alembic upgrade head
+      - name: Run tests against service containers
+        env:
+          DATABASE_URL: postgresql+asyncpg://energyhub:energyhub123@localhost:5433/energyhub_test
+          REDIS_URL: redis://localhost:6380/0
+          REDIS_HOST: localhost
+          REDIS_PORT: "6380"
+        run: poetry run pytest --cov=energyhub --cov-report=xml
+
+  # ---- Estágio 2: build + push das 5 imagens no GHCR --------------------------------------------
+  build-and-push:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth-service, client-service, contract-service, financial-service, audit-service]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+        with:
+          version: latest
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/energyhub-${{ matrix.service }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.sha }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: ./services/${{ matrix.service }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ---- Estágio 3: deploy validado num kind efêmero (grátis, autocontido) ------------------------
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # só puxa as imagens do GHCR (não publica)
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lowercase owner
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      # Libera espaço em disco (runners lotam ~14GB; imagens + kind node estouram sem isto).
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+
+      # cluster_name EXPLÍCITO: o default do helm/kind-action é `chart-testing`, e `kind load`
+      # assume `--name kind` → sem isto as imagens caem no cluster errado (ImagePullBackOff).
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: energyhub
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Puxa as imagens recém-publicadas (tag SHA), renomeia para o nome que os manifestos esperam
+      # (energyhub-<svc>-service:latest, imagePullPolicy IfNotPresent) e carrega no kind.
+      - name: Load service images into kind
+        run: |
+          for s in auth client contract financial audit; do
+            src="ghcr.io/${OWNER}/energyhub-${s}-service:${GITHUB_SHA}"
+            dst="energyhub-${s}-service:latest"
+            docker pull "$src"
+            docker tag "$src" "$dst"
+            kind load docker-image "$dst" --name energyhub
+          done
+
+      # Validação server-side de TODOS os manifestos contra a API real do cluster (schema + admission).
+      - name: Server-side dry-run of all manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply --dry-run=server -f k8s/
+
+      - name: Apply manifests
+        run: kubectl apply -f k8s/
+
+      # Runner tem RAM limitada (8–16GB): réplicas dos serviços em 1 para caber (backends já são 1).
+      - name: Scale services to 1 replica (runner RAM)
+        run: |
+          for s in auth client contract financial audit; do
+            kubectl -n energyhub scale deployment/${s}-service --replicas=1
+          done
+
+      # Gate num subconjunto CORE e confiável (Postgres/Redis/RabbitMQ/Consul + auth/client). Não
+      # bloqueia em Kafka/Zookeeper (pesados/lentos num runner) — eles são aplicados, não aguardados.
+      - name: Wait for core stack to be ready
+        run: |
+          kubectl -n energyhub wait --for=condition=available --timeout=240s \
+            deployment/postgres deployment/redis deployment/rabbitmq deployment/consul
+          kubectl -n energyhub wait --for=condition=available --timeout=300s \
+            deployment/auth-service deployment/client-service
+
+      # Drill de rollback: injeta uma imagem quebrada, confirma que o rollout NÃO conclui, reverte
+      # com `rollout undo` e confirma a recuperação — prova o mecanismo de auto-rollback do CD.
+      - name: Rollback drill (injected failure)
+        run: |
+          kubectl -n energyhub set image deployment/auth-service auth-service=energyhub-auth-service:does-not-exist
+          if kubectl -n energyhub rollout status deployment/auth-service --timeout=60s; then
+            echo "ERRO: rollout com imagem inexistente deveria falhar" && exit 1
+          fi
+          echo "rollout falhou como esperado — revertendo..."
+          kubectl -n energyhub rollout undo deployment/auth-service
+          kubectl -n energyhub rollout status deployment/auth-service --timeout=180s
+          echo "rollback recuperou o auth-service ✅"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -n energyhub -o wide || true
+          kubectl get events -n energyhub --sort-by=.lastTimestamp | tail -30 || true
