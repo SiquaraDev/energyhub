@@ -33,8 +33,16 @@ class EventProducer:
 
     async def connect(self) -> None:
         """Estabelece a conexão robusta e o canal, se ainda não abertos (idempotente)."""
+        url = RabbitMQConfig.get_url()
+        if not url:
+            # `connect_robust("")` NAO falha: entra num loop de reconexao ETERNO e o `await` do
+            # publish nunca retorna — travando a requisicao de negocio (o `publish_safely` nem
+            # chega a engolir, porque nada e levantado). Falhar rapido converte uma config ausente
+            # num evento perdido e logado, preservando a promessa de que a mensageria e um efeito
+            # colateral NAO-bloqueante da escrita.
+            raise MessagePublishingException("RABBITMQ_URL nao configurada para este servico")
         if self._connection is None or self._connection.is_closed:
-            self._connection = await aio_pika.connect_robust(RabbitMQConfig.get_url())
+            self._connection = await aio_pika.connect_robust(url)
             self._channel = await self._connection.channel()
 
     async def disconnect(self) -> None:

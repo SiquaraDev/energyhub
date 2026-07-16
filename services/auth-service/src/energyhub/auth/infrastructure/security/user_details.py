@@ -7,6 +7,8 @@ entidade ORM fora da camada de apresentação e centraliza o achatamento papel�
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from energyhub.auth.domain.entity.user import User
 
 
@@ -20,6 +22,11 @@ class UserDetails:
     def user(self) -> User:
         """A entidade `User` subjacente."""
         return self._user
+
+    @property
+    def id(self) -> UUID:
+        """O id do usuário autenticado."""
+        return self._user.id
 
     @property
     def username(self) -> str:

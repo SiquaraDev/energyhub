@@ -23,6 +23,10 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 
 
 class PermissionService:
@@ -43,6 +47,18 @@ class PermissionService:
             raise PermissionAlreadyExistsException(f"Já existe permissão com o nome {dto.name}")
         saved = await self._repository.save(self._mapper.to_entity(dto))
         await invalidate_cache(CacheConstants.PERMISSIONS)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Permission",
+                    entity_id=saved.id,
+                    details={"name": saved.name},
+                )
+            ),
+            event="audit",
+        )
         return self._mapper.to_response_dto(saved)
 
     @cache(
@@ -90,6 +106,18 @@ class PermissionService:
         entity.update_timestamp()
         saved = await self._repository.save(entity)
         await invalidate_cache(CacheConstants.PERMISSIONS)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="UPDATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Permission",
+                    entity_id=saved.id,
+                    details={"name": saved.name},
+                )
+            ),
+            event="audit",
+        )
         return self._mapper.to_response_dto(saved)
 
     async def delete(self, permission_id: UUID) -> None:
@@ -97,3 +125,15 @@ class PermissionService:
             raise PermissionNotFoundException(f"Permissão {permission_id} não encontrada")
         await self._repository.delete_by_id(permission_id)
         await invalidate_cache(CacheConstants.PERMISSIONS)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="DELETE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Permission",
+                    entity_id=permission_id,
+                    details={},
+                )
+            ),
+            event="audit",
+        )

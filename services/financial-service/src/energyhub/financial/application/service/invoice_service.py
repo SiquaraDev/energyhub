@@ -17,10 +17,13 @@ from energyhub.financial.domain.exception.invoice_not_found_exception import (
 from energyhub.financial.infrastructure.persistence.invoice_repository import InvoiceRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
 from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
 from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics, record_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 
 
 class InvoiceService:
@@ -63,6 +66,18 @@ class InvoiceService:
         saved = await self._repository.save(entity)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Invoice",
+                    entity_id=response.id,
+                    details={"invoice_number": response.invoice_number},
+                )
+            ),
+            event="audit",
+        )
         return response
 
     async def find_by_id(self, invoice_id: UUID) -> InvoiceResponseDTO:
@@ -90,6 +105,21 @@ class InvoiceService:
         saved = await self._repository.save(entity)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="UPDATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Invoice",
+                    entity_id=response.id,
+                    details={
+                        "invoice_number": response.invoice_number,
+                        "status": response.status.value,
+                    },
+                )
+            ),
+            event="audit",
+        )
         if became_paid:
             record_safely(business_metrics.increment_invoice_paid)
         return response
@@ -98,3 +128,14 @@ class InvoiceService:
         if not await self._repository.exists_by_id(invoice_id):
             raise InvoiceNotFoundException(f"Fatura {invoice_id} não encontrada")
         await self._repository.delete_by_id(invoice_id)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="DELETE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Invoice",
+                    entity_id=invoice_id,
+                )
+            ),
+            event="audit",
+        )

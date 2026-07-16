@@ -1,8 +1,14 @@
 """Registro no Consul (service discovery) — helper reutilizável por todos os serviços (Fase 15).
 
-Registra o serviço no agente Consul com **nome lógico**, **service id único** (`nome-porta`),
+Registra o serviço no agente Consul com **nome lógico**, **service id único por instância**
+(`{name}-{instance_id}`, onde o discriminador é o HOSTNAME do pod ou um uuid4 por processo),
 **endereço/porta** e um **health check HTTP** contra `/health` num intervalo definido — de modo que o
 Consul reflita a saúde de cada instância e os chamadores (e o Traefik) a resolvam por nome.
+
+O `Name` continua sendo o **nome lógico** do serviço: a descoberta por nome e o roteamento
+Consul-catalog do Traefik não mudam. O que muda é que **cada réplica passa a ter uma entrada própria
+no catálogo** — antes o id era `nome-porta`, idêntico em todas, e as réplicas se sobrescreviam
+mutuamente (o shutdown de um pod desregistrava a entrada compartilhada).
 
 Implementado via **HTTP API do Consul** (`httpx`, já dependência do serviço), em vez do
 `python-consul` — funcionalmente idêntico, assíncrono-friendly e com uma dependência a menos.
@@ -11,10 +17,17 @@ Implementado via **HTTP API do Consul** (`httpx`, já dependência do serviço),
 from __future__ import annotations
 
 import logging
+import os
+import uuid
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Discriminador estavel por PROCESSO: em k8s o HOSTNAME e o nome do pod (unico, legivel e ja
+# injetado); fora do k8s (Compose/local) um uuid4 por processo evita colisao entre instancias.
+# E o que torna o service_id unico por replica (antes era name-porta, igual em todas).
+_INSTANCE_ID = os.environ.get("HOSTNAME", "").strip() or uuid.uuid4().hex[:12]
 
 
 def _consul_base_url(consul_host: str, consul_port: int) -> str:
@@ -32,13 +45,17 @@ def register_with_consul(
     interval: str = "10s",
     tags: list[str] | None = None,
 ) -> str:
-    """Registra o serviço no Consul e devolve o `service_id` (`{name}-{port}`, único por instância).
+    """Registra o serviço no Consul e devolve o `service_id` (`{name}-{instance_id}`).
+
+    O `instance_id` é o HOSTNAME do pod (em k8s) ou um uuid4 por processo (fora dele), de modo que
+    **cada réplica tenha uma entrada própria no catálogo**. O `Name` continua sendo o **nome lógico**
+    do serviço: a descoberta por nome e o roteamento Consul-catalog do Traefik não mudam.
 
     O health check aponta para `http://{address}:{port}{health_path}`; se a instância ficar crítica
     por mais de `1m`, o Consul a remove automaticamente do catálogo. `tags` alimenta o roteamento do
     Traefik (provider Consul-catalog): ex.: `traefik.http.routers.<r>.rule=PathPrefix(...)`.
     """
-    service_id = f"{name}-{port}"
+    service_id = f"{name}-{_INSTANCE_ID}"
     payload = {
         "Name": name,
         "ID": service_id,

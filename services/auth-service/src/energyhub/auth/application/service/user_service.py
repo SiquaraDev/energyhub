@@ -23,7 +23,10 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 from energyhub.shared.infrastructure.security.password_hasher import hash_password
 
 
@@ -73,6 +76,18 @@ class UserService:
             await publish_safely(
                 self._producer.publish_user_created(response), event="user.created"
             )
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="User",
+                    entity_id=saved.id,
+                    details={"username": saved.username},
+                )
+            ),
+            event="audit",
+        )
         return response
 
     @cache(
@@ -114,6 +129,18 @@ class UserService:
             await publish_safely(
                 self._producer.publish_user_updated(response), event="user.updated"
             )
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="UPDATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="User",
+                    entity_id=saved.id,
+                    details={"username": saved.username},
+                )
+            ),
+            event="audit",
+        )
         return response
 
     async def delete(self, user_id: UUID) -> None:
@@ -123,3 +150,15 @@ class UserService:
         await invalidate_cache(CacheConstants.USERS)
         if self._producer is not None:
             await publish_safely(self._producer.publish_user_deleted(user_id), event="user.deleted")
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="DELETE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="User",
+                    entity_id=user_id,
+                    details={},
+                )
+            ),
+            event="audit",
+        )

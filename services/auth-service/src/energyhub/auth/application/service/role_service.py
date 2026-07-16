@@ -24,6 +24,10 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 
 
 class RoleService:
@@ -56,6 +60,18 @@ class RoleService:
             role.permissions.append(permission)
         saved = await self._roles.save(role)
         await invalidate_cache(CacheConstants.ROLES)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Role",
+                    entity_id=saved.id,
+                    details={"name": saved.name},
+                )
+            ),
+            event="audit",
+        )
         return self._mapper.to_response_dto(saved)
 
     @cache(
@@ -96,6 +112,18 @@ class RoleService:
         role.update_timestamp()
         saved = await self._roles.save(role)
         await invalidate_cache(CacheConstants.ROLES)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="UPDATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Role",
+                    entity_id=saved.id,
+                    details={"name": saved.name},
+                )
+            ),
+            event="audit",
+        )
         return self._mapper.to_response_dto(saved)
 
     async def delete(self, role_id: UUID) -> None:
@@ -103,3 +131,15 @@ class RoleService:
             raise RoleNotFoundException(f"Papel {role_id} não encontrado")
         await self._roles.delete_by_id(role_id)
         await invalidate_cache(CacheConstants.ROLES)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="DELETE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Role",
+                    entity_id=role_id,
+                    details={},
+                )
+            ),
+            event="audit",
+        )

@@ -21,10 +21,13 @@ from energyhub.shared.application.dto.page_response import PageResponse
 from energyhub.shared.constant.cache_constants import CacheConstants
 from energyhub.shared.infrastructure.cache.cache_config import id_key_builder, page_key_builder
 from energyhub.shared.infrastructure.cache.cache_helper import invalidate_cache
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
 from energyhub.shared.infrastructure.messaging.kafka_config import KafkaConfig
 from energyhub.shared.infrastructure.messaging.kafka_event_producer import KafkaEventProducer
 from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
 from energyhub.shared.infrastructure.metrics.business_metrics import business_metrics, record_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 
 
 class ContractService:
@@ -68,6 +71,18 @@ class ContractService:
         await invalidate_cache(CacheConstants.CONTRACTS)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Contract",
+                    entity_id=response.id,
+                    details={"contract_number": response.contract_number},
+                )
+            ),
+            event="audit",
+        )
         record_safely(lambda: business_metrics.increment_contract_created(response.status.value))
         return response
 
@@ -110,6 +125,21 @@ class ContractService:
         await invalidate_cache(CacheConstants.CONTRACTS)
         response = self._mapper.to_response_dto(saved)
         await self._publish_event(response)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="UPDATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Contract",
+                    entity_id=response.id,
+                    details={
+                        "contract_number": response.contract_number,
+                        "status": response.status.value,
+                    },
+                )
+            ),
+            event="audit",
+        )
         return response
 
     async def delete(self, contract_id: UUID) -> None:
@@ -117,3 +147,14 @@ class ContractService:
             raise ContractNotFoundException(f"Contrato {contract_id} não encontrado")
         await self._repository.delete_by_id(contract_id)
         await invalidate_cache(CacheConstants.CONTRACTS)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="DELETE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Contract",
+                    entity_id=contract_id,
+                )
+            ),
+            event="audit",
+        )

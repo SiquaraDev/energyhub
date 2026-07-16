@@ -16,6 +16,7 @@ from energyhub.auth.infrastructure.persistence.user_repository import UserReposi
 from energyhub.auth.infrastructure.security.jwt_service import JwtService
 from energyhub.auth.infrastructure.security.user_details import UserDetails
 from energyhub.shared.infrastructure.persistence.database import get_session
+from energyhub.shared.infrastructure.security.actor_context import set_current_actor
 
 # auto_error=False: tratamos nós mesmos a ausência de credenciais (→ 401, não 403).
 # scheme_name/bearerFormat: alinham o esquema de segurança do OpenAPI com o `bearerAuth` (JWT)
@@ -45,4 +46,8 @@ async def get_current_user(
     if user is None:
         raise _UNAUTHORIZED
 
-    return UserDetails(user)
+    details = UserDetails(user)
+    # Publica o ator no contexto da requisição: alimenta o `user_id` do `AuditEvent` nos serviços de
+    # aplicação sem propagar o usuário autenticado como parâmetro por todas as camadas.
+    set_current_actor(details.id)
+    return details

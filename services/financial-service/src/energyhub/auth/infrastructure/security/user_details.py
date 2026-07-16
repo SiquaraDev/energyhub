@@ -8,6 +8,7 @@ de autorização precisam: username, ativo, papéis e permissões achatadas.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 
 class UserDetails:
@@ -15,6 +16,11 @@ class UserDetails:
 
     def __init__(self, data: dict[str, Any]) -> None:
         self._data = data
+
+    @property
+    def id(self) -> UUID:
+        """Id do usuário (o `BaseDTO` do auth sempre inclui `id` no payload)."""
+        return UUID(str(self._data["id"]))
 
     @property
     def username(self) -> str:

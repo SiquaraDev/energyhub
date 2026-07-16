@@ -13,6 +13,10 @@ from energyhub.financial.domain.exception.payment_not_found_exception import (
 from energyhub.financial.infrastructure.persistence.payment_repository import PaymentRepository
 from energyhub.shared.application.dto.page_request import PageRequest
 from energyhub.shared.application.dto.page_response import PageResponse
+from energyhub.shared.infrastructure.messaging.audit_event import AuditEvent
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
+from energyhub.shared.infrastructure.messaging.publish_helper import publish_safely
+from energyhub.shared.infrastructure.security.actor_context import get_current_actor
 
 
 class PaymentService:
@@ -25,7 +29,20 @@ class PaymentService:
     async def create(self, invoice_id: UUID, dto: PaymentRequestDTO) -> PaymentResponseDTO:
         entity = self._mapper.to_entity(invoice_id, dto)
         saved = await self._repository.save(entity)
-        return self._mapper.to_response_dto(saved)
+        response = self._mapper.to_response_dto(saved)
+        await publish_safely(
+            audit_event_producer.publish_audit(
+                AuditEvent(
+                    user_id=get_current_actor(),
+                    action="CREATE",  # CREATE | UPDATE | DELETE — valores do enum AuditAction
+                    entity_type="Payment",
+                    entity_id=response.id,
+                    details={"invoice_id": str(response.invoice_id)},
+                )
+            ),
+            event="audit",
+        )
+        return response
 
     async def find_by_id(self, payment_id: UUID) -> PaymentResponseDTO:
         entity = await self._repository.find_by_id(payment_id)

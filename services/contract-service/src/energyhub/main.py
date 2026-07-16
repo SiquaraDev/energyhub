@@ -21,6 +21,7 @@ from energyhub.service_clients.auth_client import auth_client
 from energyhub.service_clients.client_client import client_client
 from energyhub.shared.domain.exception.domain_exception import DomainException
 from energyhub.shared.infrastructure.cache.cache_config import CacheConfig
+from energyhub.shared.infrastructure.messaging.audit_event_producer import audit_event_producer
 from energyhub.shared.infrastructure.persistence.database import engine
 from energyhub.shared.infrastructure.persistence.mapping import configure_mappings, metadata
 from energyhub.shared.presentation.exception.domain_exception_handler import (
@@ -70,6 +71,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     )
     await auth_client.close()
     await client_client.close()
+    try:
+        await audit_event_producer.disconnect()
+    except Exception as error:  # noqa: BLE001
+        logger.warning("Falha ao encerrar AuditEventProducer: %s", error)
 
 
 app = FastAPI(

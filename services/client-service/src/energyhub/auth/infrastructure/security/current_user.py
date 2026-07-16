@@ -14,6 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from energyhub.auth.infrastructure.security.jwt_service import JwtService
 from energyhub.auth.infrastructure.security.user_details import UserDetails
 from energyhub.service_clients.auth_client import auth_client
+from energyhub.shared.infrastructure.security.actor_context import set_current_actor
 
 _bearer_scheme = HTTPBearer(scheme_name="bearerAuth", bearerFormat="JWT", auto_error=False)
 
@@ -40,4 +41,8 @@ async def get_current_user(
     if user_data is None:
         raise _UNAUTHORIZED
 
-    return UserDetails(user_data)
+    details = UserDetails(user_data)
+    # Alimenta o `user_id` do `AuditEvent` sem propagar o ator como parâmetro por todas as camadas:
+    # os routers usam este guard apenas em `dependencies=[...]`, sem ligá-lo a uma variável.
+    set_current_actor(details.id)
+    return details

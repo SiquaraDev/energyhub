@@ -293,6 +293,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # RabbitMQ: este serviço publica no Kafka os eventos de negócio, mas a TRILHA DE AUDITORIA
+      # (fix-microservices-gaps) vai para a fila `audit` do RabbitMQ — daí precisar da URL aqui.
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:
@@ -333,6 +336,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # RabbitMQ: eventos de negócio vão pro Kafka, mas a TRILHA DE AUDITORIA
+      # (fix-microservices-gaps) publica na fila `audit` do RabbitMQ.
+      RABBITMQ_URL: amqp://energyhub:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY no .env}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     labels:

@@ -8,6 +8,7 @@ baseado no sucesso do processamento (`message.process`) para at-least-once com r
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -52,10 +53,22 @@ class AuditConsumer:
             )
 
     async def start_consuming(self) -> None:
-        """Declara a fila de auditoria durável, fixa prefetch=1 e consome com ack por processo."""
+        """Declara a fila de auditoria durável, fixa prefetch=1 e consome até ser cancelado.
+
+        **Roda até o cancelamento** (a task de fundo do lifespan chama `consumer_task.cancel()` no
+        shutdown). Isso é essencial: `queue.consume` apenas REGISTRA o callback e retorna de
+        imediato — se esta corrotina terminasse aí, a task completaria, a `connection` (única
+        referência viva) seria coletada e a assinatura morreria silenciosamente, deixando a fila
+        com **0 consumers** e a trilha de auditoria vazia. Manter a corrotina suspensa preserva a
+        conexão; o `finally` a fecha de forma limpa quando o shutdown cancela a task.
+        """
         connection = await aio_pika.connect_robust(RabbitMQConfig.get_url())
-        channel = await connection.channel()
-        await channel.set_qos(prefetch_count=1)
-        queue = await channel.declare_queue(RabbitMQConfig.AUDIT_QUEUE, durable=True)
-        await queue.consume(self.handle_message)
-        logger.info("AuditConsumer assinando a fila '%s'", RabbitMQConfig.AUDIT_QUEUE)
+        try:
+            channel = await connection.channel()
+            await channel.set_qos(prefetch_count=1)
+            queue = await channel.declare_queue(RabbitMQConfig.AUDIT_QUEUE, durable=True)
+            await queue.consume(self.handle_message)
+            logger.info("AuditConsumer assinando a fila '%s'", RabbitMQConfig.AUDIT_QUEUE)
+            await asyncio.Future()  # suspende até o cancelamento no shutdown
+        finally:
+            await connection.close()
