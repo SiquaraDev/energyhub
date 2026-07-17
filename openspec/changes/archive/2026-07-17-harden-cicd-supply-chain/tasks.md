@@ -4,28 +4,28 @@
 - [x] 1.2 Resolve the full 40-character commit SHA that each current release tag points to
 - [x] 1.3 Rewrite each `uses: <action>@<tag>` to `uses: <action>@<sha> # <tag>` across all five workflows, preserving the version in the trailing comment
 - [x] 1.4 Confirm no `uses:` reference remains on a mutable tag or branch in any workflow
-- [ ] 1.5 Push and confirm all five workflows still run green with the SHA pins
+- [x] 1.5 Push and confirm all five workflows still run green with the SHA pins
 
 ## 2. Automated Pin Updates
 
 - [x] 2.1 Add `.github/dependabot.yml` with a `package-ecosystem: "github-actions"` entry covering the workflow directory
 - [x] 2.2 Set a review schedule (e.g. weekly) and confirm Dependabot is enabled for the repository
-- [ ] 2.3 Confirm Dependabot enumerates the workflows and can open a SHA-bump pull request
+- [x] 2.3 Confirm Dependabot enumerates the workflows and can open a SHA-bump pull request
 
 ## 3. Branch Protection
 
 - [x] 3.1 Align workflow job/check names so `build.yml` and `test.yml` expose stable, referenceable status-check names
 - [x] 3.2 Author a reproducible `gh api` script (and documentation) that configures branch protection for `master` and `main`
 - [x] 3.3 Encode the rules: block direct pushes, require at least one approving review, and require the build and test status checks
-- [ ] 3.4 Have a repository admin apply the script to both default branches
-- [ ] 3.5 Verify a direct push is rejected and a PR without review / with failing checks cannot be merged
+- [x] 3.4 Have a repository admin apply the script to both default branches
+- [x] 3.5 Verify a direct push is rejected and a PR without review / with failing checks cannot be merged
 
 ## 4. Cluster Image-Pull Authentication
 
 - [x] 4.1 Create a `kubernetes.io/dockerconfigjson` pull-secret manifest for `ghcr.io` in the `energyhub` namespace, sourced from a secret-provided GHCR token (no plaintext)
 - [x] 4.2 Wire `imagePullSecrets` into the service pods via the namespace ServiceAccount and/or each service Deployment (auth, client, contract, financial, audit)
 - [x] 4.3 Document the public-package alternative (making GHCR packages public) and its trade-off
-- [ ] 4.4 Verify a private `ghcr.io/siquaradev/energyhub-<service>-service` image is pulled successfully instead of `ImagePullBackOff`
+- [x] 4.4 Verify a private `ghcr.io/siquaradev/energyhub-<service>-service` image is pulled successfully instead of `ImagePullBackOff`
 
 ## 5. Workflow Supply-Chain Hardening
 
@@ -37,22 +37,42 @@
 
 ## 6. Validation
 
-- [ ] 6.1 Confirm all workflows pass with SHA pins, least-privilege permissions, concurrency guards, and provenance/SBOM enabled
-- [ ] 6.2 Confirm published images carry a provenance attestation and SBOM
-- [ ] 6.3 Confirm branch protection blocks unreviewed/failing merges on `master` and `main`
-- [ ] 6.4 Confirm the cluster pulls private GHCR images via the pull secret
+- [x] 6.1 Confirm all workflows pass with SHA pins, least-privilege permissions, concurrency guards, and provenance/SBOM enabled
+- [x] 6.2 Confirm published images carry a provenance attestation and SBOM
+- [x] 6.3 Confirm branch protection blocks unreviewed/failing merges on `master` and `main`
+- [x] 6.4 Confirm the cluster pulls private GHCR images via the pull secret
 - [x] 6.5 Run `openspec validate harden-cicd-supply-chain --strict` and confirm the change is valid
 
 ---
 
 ## Notas de aplicação
 
-**Estado: 17/27 feitas.** As 10 restantes NÃO são esquecimento — cada uma depende de um gatilho
-externo que não existe no ambiente local. Detalhe:
+**Estado: 26/27 feitas.** A única em aberto (5.5, parcial) está detalhada abaixo — não é
+esquecimento.
 
-### Dependem do push (o CI é o único lugar onde rodam): 1.5, 2.3, 4.4, 5.5, 6.1, 6.2, 6.4
+### ✅ Verificado no CI (push `ae27d4e` — os 5 workflows verdes)
 
-Validado localmente até onde é possível sem os runners:
+| Tarefa | Evidência (não "passou", mas *o quê* passou) |
+| :-- | :-- |
+| 1.5 / 6.1 | `Build`, `Test`, `Docker`, `Deploy`, `CI/CD Pipeline` todos **success** com os 29 pins por SHA. |
+| 2.2 / 2.3 | O `Dependabot Updates` rodou e **enumerou as 13 actions** (`Latest version is` ×13), abrindo **0 PRs** — confirmação independente de que os pins já estão na última versão. |
+| 4.4 / 6.4 | Step `Verify GHCR pull secret pulls a PRIVATE image`: `pod/ghcr-pull-probe condition met` → `OK: imagem PRIVADA do GHCR puxada via ghcr-pull-secret`. |
+| 6.2 | O index OCI de `energyhub-auth-service:ae27d4e…` traz **2 manifestos**: `linux/amd64` (imagem) + `unknown/unknown` (`attestation-manifest`) = provenance + SBOM anexados. |
+
+> **O `Deploy` verde NÃO é um deploy.** `gate: success` → `deploy: skipped` (sem `KUBE_CONFIG`).
+> Logo o preflight novo do `ghcr-pull-secret` em `deploy.yml` **não foi exercitado** por este run.
+
+### 🐞 Bug encontrado pelo próprio CI (corrigido)
+
+O probe passou, mas o log trouxe `sleep: missing operand` antes de o pod ser criado. Causa: o
+heredoc do probe é **não-quotado** (`<<EOF`, necessário para expandir `${OWNER}`/`${GITHUB_SHA}`), e
+um comentário que eu escrevi dentro dele usava **crases**. Bash faz substituição de comando em crases
+dentro de heredoc não-quotado → ele **executou** `sleep` e ainda apagou a palavra do comentário
+aplicado. Efeito inofensivo, forma inaceitável numa change sobre supply chain: qualquer texto entre
+crases naquele bloco vira comando. Corrigido movendo a explicação para fora do heredoc, com um aviso
+explícito no lugar. Varredura confirmou **0** heredocs não-quotados com crase/`$()` nos 5 workflows.
+
+### Validado localmente (antes do push):
 
 | Verificação | Ferramenta | Resultado |
 | :-- | :-- | :-- |
@@ -67,21 +87,45 @@ Validado localmente até onde é possível sem os runners:
 | Sintaxe dos scripts novos | `bash -n` | OK |
 | Script de branch protection | execução real em dry-run | plano correto, nada alterado |
 
-Ao rodar no CI, `4.4`/`6.4` são cobertas pelo passo **`Verify GHCR pull secret pulls a PRIVATE
-image`** (`ci-cd.yml`), que sobe um pod referenciando a imagem pelo nome **remoto** com
-`imagePullPolicy: Always` — forçando um pull autenticado real, que o `kind load` mascararia.
+### ✅ 3.4 / 3.5 / 6.3 — branch protection APLICADA no `master`
 
-### Dependem de uma ação de ADMIN, deliberadamente não executada: 3.4, 3.5, 6.3
+Aplicada com `bash .github/branch-protection.sh --apply --yes` e **verificada pela API** (não pelo
+exit code do comando):
 
-O usuário decidiu **escrever o script sem aplicá-lo**. Motivo, registrado aqui porque muda a leitura
-da spec: o fluxo atual é **push direto no `master`** por um mantenedor solo, e o GitHub **não permite
-aprovar o próprio PR** — aplicar "≥1 aprovação obrigatória" com `enforce_admins=true` travaria todo
-merge no repositório. O script está pronto e testado em dry-run:
-
-```bash
-bash .github/branch-protection.sh          # plano (não altera nada)
-bash .github/branch-protection.sh --apply  # aplica (pede confirmação)
 ```
+push direto bloqueado : true          checks exigidos : build, test
+aprovacoes exigidas   : 1             strict          : true
+enforce_admins        : false         force push      : false / delecao: false
+```
+
+`main` foi **pulado** — não existe neste repo; a regra passa a valer no dia em que ele for criado.
+
+> **Escopo honesto de 3.5.** O bloqueio de push direto e o gate de review foram confirmados na
+> *configuração* (`required_pull_request_reviews != null`, `checks: [build, test]`). A **rejeição
+> empírica** não é observável desta conta: com `enforce_admins=false` — o default deliberado — o
+> mantenedor **admin continua com push direto**, que é justamente o que preserva o fluxo atual. A
+> regra morde para não-admins. Provar a rejeição exigiria uma segunda conta sem privilégio.
+
+**Por que `enforce_admins=false`:** o GitHub **não permite aprovar o próprio PR**. Num repo de um
+mantenedor só, exigir 1 aprovação com `enforce_admins=true` travaria **todo** merge. Ligue apenas
+quando houver um segundo mantenedor que possa aprovar. Rollback: `--remove --yes`.
+
+### ⚠️ 5.5 — a única tarefa em aberto (parcial)
+
+A matriz de imagens publica verde (confirmado no push `ae27d4e`). Mas *"a superseded run is cancelled
+by a newer push"* **não foi observado**: houve um único push, então nenhum run chegou a ser superado.
+O `concurrency` está declarado nos 5 workflows e o `actionlint` o valida, mas o comportamento de
+cancelamento só se prova com dois pushes sobrepostos. Deixada aberta em vez de marcada por
+inferência — ela se prova sozinha no primeiro par de pushes em sequência rápida.
+
+### 🐞 Segundo bug encontrado ao aplicar (corrigido)
+
+O modo `--show` do `branch-protection.sh` usava um `| jq` **externo**, que não existe no Git Bash do
+Windows. O `|| echo "(sem protecao)"` capturava o `jq: command not found` e reportava **"sem
+proteção" para um branch que ACABARA de ser protegido** — falso negativo silencioso num script de
+segurança. Corrigido para o `--jq` embutido do `gh`, com os tipos certos da resposta
+(`enforce_admins` é objeto `{enabled}`, `dismiss_stale_reviews` é boolean direto — trocar um pelo
+outro aborta o jq) e distinguindo 404 legítimo de erro de chamada.
 
 ### Desvio consciente do design.md — bump junto com o pin
 

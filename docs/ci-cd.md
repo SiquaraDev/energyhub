@@ -46,7 +46,7 @@ tags **`:latest`** (rolling) e **`:${{ github.sha }}`** (imutável, rastreável 
 - **Login** com `github.actor` + `GITHUB_TOKEN` (sem PAT). Exige `permissions: { packages: write }`.
 - O owner do ref OCI é **minúsculo** (`SiquaraDev` → `siquaradev`) — feito via `${GITHUB_REPOSITORY_OWNER,,}`.
 - Um pacote novo nasce **privado** — e continua assim. O cluster autentica com o
-  **`ghcr-pull-secret`** entregue pelo SA `energyhub-sa` (ver [🔐 Supply chain](#-supply-chain-endurecimento-pós-10)).
+  **`ghcr-pull-secret`** entregue pelo SA `energyhub-sa` (ver [🔐 Supply chain](#supply-chain)).
 - Cada imagem publicada carrega **provenance** (de qual commit/workflow/builder saiu) e **SBOM**
   (inventário de componentes), via `provenance: true`/`sbom: true` no `docker/build-push-action`.
 - **Trocar por Docker Hub / AWS ECR:** muda-se apenas o **passo de login** e o **prefixo das tags**
@@ -115,6 +115,8 @@ O plano da Fase 17 foi escrito antes de as Fases 15/16 materializarem; alguns po
 
 ---
 
+<a id="supply-chain"></a>
+
 ## 🔐 Supply chain — endurecimento pós-`1.0.0`
 
 A Fase 17 entregou uma esteira que **funciona**; esta camada a torna **confiável**. Três buracos
@@ -141,7 +143,7 @@ comentário juntos — sem ele, "pinar" viraria "congelar".
 > `slackapi/slack-github-action` v2→**v4** (+ `codecov-action` v5→**v7**). Todas foram subidas junto
 > com o pin, após conferir na API que cada input em uso sobreviveu ao bump. Hoje: **zero Node 20**.
 
-### 2. Branch protection (ação de admin — **não aplicada** automaticamente)
+### 2. Branch protection — **ATIVA** no `master`
 
 Vive nas *settings* do GitHub, fora do YAML — então virou script versionado:
 [`.github/branch-protection.sh`](../.github/branch-protection.sh).
@@ -153,8 +155,13 @@ bash .github/branch-protection.sh --show   # inspeciona o estado vigente
 bash .github/branch-protection.sh --remove --yes   # rollback
 ```
 
-Regras: push direto bloqueado, ≥1 aprovação, required checks **`build`** + **`test`**, sem
-force-push/deleção.
+Estado vigente (confirmado pela API):
+
+```
+push direto bloqueado : true          checks exigidos : build, test
+aprovacoes exigidas   : 1             strict          : true
+enforce_admins        : false         force push      : false / delecao: false
+```
 
 - **Só `build` e `test`** são exigidos: `deploy` está de fora porque **dois** workflows expõem um
   check com esse mesmo nome (ambíguo), e gatear merge em deploy prenderia o PR à disponibilidade do
@@ -164,7 +171,13 @@ force-push/deleção.
   com `ENFORCE_ADMINS=true` num repo de um mantenedor só **trava todo merge**. Por isso o default é
   `ENFORCE_ADMINS=false` — colaboradores passam pelo fluxo completo e o admin mantém a válvula de
   escape. Só ligue quando houver um segundo mantenedor que possa aprovar.
+- **O que isso significa na prática:** com `enforce_admins=false`, **o admin continua com push direto
+  no `master`** — o fluxo atual do mantenedor não muda. A regra morde para não-admins. Se um dia o
+  push direto passar a ser rejeitado para você, é porque `enforce_admins` foi ligado; reverta com
+  `--remove --yes`.
 - Hoje só existe o branch `master`; o script **pula** `main` com aviso em vez de estourar 404.
+- Os PRs do **Dependabot** passam pelo mesmo gate (`build` + `test` + 1 aprovação). Ele não aprova os
+  próprios PRs — você aprova, e aprovar o PR de *outro* autor o GitHub permite.
 
 ### 3. Pull autenticado das imagens privadas
 
@@ -182,7 +195,7 @@ resolvem, e um probe dedicado impede o falso-positivo:
 - O `deploy.yml` ganhou um **preflight** do `ghcr-pull-secret`, simétrico ao do `energyhub-secret`.
 
 A alternativa (**pacotes públicos**, dispensando o secret) está documentada com o trade-off em
-[`k8s/secrets/README.md`](../k8s/secrets/README.md#-alternativa-tornar-os-pacotes-públicos).
+[`k8s/secrets/README.md`](../k8s/secrets/README.md#pacotes-publicos).
 
 ### 4. Concurrency + least-privilege
 
@@ -201,8 +214,8 @@ no que só puxa.
 - Antes de um deploy real: provisionar o **`ghcr-pull-secret`** (`k8s/secrets/create-ghcr-pull-secret.sh`)
   — os preflights do `deploy.yml` falham cedo e com mensagem explícita se ele ou o `energyhub-secret`
   faltarem. Rotacionar as credenciais placeholder herdadas (ver notas das Fases 7/12/15/16).
-- **Aplicar a branch protection** (`bash .github/branch-protection.sh --apply`) — é uma ação de
-  **admin**, deliberadamente fora de qualquer esteira automática.
+- A **branch protection já está ativa** no `master` (`--show` para inspecionar). Aplicá-la/alterá-la
+  é ação de **admin**, deliberadamente fora de qualquer esteira automática.
 - Rollback restaura disponibilidade, mas a mudança que falhou **ainda precisa ser investigada** — os
   logs/artefatos e a notificação garantem que a falha não passe silenciosa.
 

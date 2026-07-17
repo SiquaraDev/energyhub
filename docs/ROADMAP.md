@@ -26,11 +26,12 @@ e validação da esteira ao vivo) antes de qualquer uso não-local.
 
 > **Estado atual:** 🎉 **Todas as 18 fases (0–17) estão CONCLUÍDAS e arquivadas** (versões `0.1.0`
 > a `1.0.0`) — roadmap das fases completo, marco `1.0.0`; a implementação seguiu o **layout `src`**
-> (`src/energyhub/`). Em seguida, um ciclo de **endurecimento pós-`1.0.0`** adicionou **5 novas
-> propostas OpenSpec** (📋 _Planejadas_ — _specs_ prontas e validadas com `openspec validate --strict`,
-> implementação a iniciar em ordem) cobrindo **segurança**, **supply-chain do CI/CD**, **correções dos
-> microsserviços**, **robustez do Kubernetes** e **validação da esteira ao vivo**. Consulte o
-> [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão.
+> (`src/energyhub/`). Em seguida, um ciclo de **endurecimento pós-`1.0.0`** adicionou **5 propostas
+> OpenSpec** cobrindo **segurança**, **correções dos microsserviços**, **supply-chain do CI/CD**,
+> **robustez do Kubernetes** e **validação da esteira ao vivo** — destas, **3 já foram aplicadas e
+> arquivadas** (segurança, microsserviços e supply-chain) e **2 seguem 📋 planejadas**. Consulte o
+> [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão e a
+> [Etapa 7](#etapa-7) para o estado de cada proposta.
 
 ---
 
@@ -48,7 +49,7 @@ As 18 fases estão agrupadas em **7 etapas** (0–6) que representam grandes mar
 | **4 · Escala & Operação** | 9–12 | Cache, mensageria, busca e observabilidade | `0.9.0` – `0.12.0` |
 | **5 · Qualidade & Empacotamento** | 13–14 | Testes automatizados e containerização | `0.13.0` – `0.14.0` |
 | **6 · Distribuição & Entrega** | 15–17 | Microsserviços, Kubernetes e CI/CD | `0.15.0` – `1.0.0` |
-| **7 · Endurecimento (pós-`1.0.0`)** | — | Segurança, supply-chain, correções de microsserviços, robustez k8s e validação da esteira | pós-`1.0.0` (📋) |
+| **7 · Endurecimento (pós-`1.0.0`)** | — | Segurança, correções de microsserviços, supply-chain, robustez k8s e validação da esteira | pós-`1.0.0` (3 ✅ / 2 📋) |
 
 ```mermaid
 timeline
@@ -77,9 +78,9 @@ timeline
         Fase 16 · Kubernetes  : Deployments + HPA + Ingress
         Fase 17 · CI/CD       : GitHub Actions + rollback
     section Endurecimento (pós-1.0.0)
-        Segurança         : Credenciais + secret manager + TLS
-        Supply-chain      : Actions por SHA + branch protection
-        Microsserviços    : Consul service_id + produtor audit
+        Segurança (ok)    : Credenciais + secret manager + TLS
+        Microsserviços (ok) : Consul service_id + produtor audit
+        Supply-chain (ok) : Actions por SHA + branch protection
         Robustez k8s      : Kustomize + Kafka KRaft + PVCs
         Esteira ao vivo   : Pipeline verde no GitHub + evidências
 ```
@@ -436,16 +437,33 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 
 ---
 
+<a id="etapa-7"></a>
+
 ## 🛡️ Etapa 7 — Endurecimento & Pós-`1.0.0`
 
-> Com o marco `1.0.0` atingido, estas **5 propostas OpenSpec** (📋 _Planejadas_) endurecem a
-> plataforma para uso **não-local**. Cada uma tem `proposal.md`/`design.md`/`tasks.md`/`specs/`
-> prontos e **validados com `openspec validate --strict`**; a implementação ainda **não começou**
-> e por isso não recebem número de versão. **Ordem recomendada — segurança primeiro:**
-> `harden-security-credentials` → `harden-cicd-supply-chain` → `fix-microservices-gaps` →
-> `k8s-production-robustness` → `validate-pipeline-live`.
+> Com o marco `1.0.0` atingido, estas **5 propostas OpenSpec** endurecem a plataforma para uso
+> **não-local**. Ordem — segurança primeiro: `harden-security-credentials` →
+> `fix-microservices-gaps` → `harden-cicd-supply-chain` → `k8s-production-robustness` →
+> `validate-pipeline-live`.
+>
+> **Progresso: 3 de 5 aplicadas e arquivadas.**
 
-### 📋 `harden-security-credentials` — Endurecimento de Segurança _(planejada · 38 tarefas)_
+| Proposta | Estado | Tarefas |
+| :------- | :----- | :------ |
+| 🛡️ `harden-security-credentials` | ✅ **Aplicada** · arquivada `2026-07-13` | 38/38 |
+| 🧩 `fix-microservices-gaps` | ✅ **Aplicada** · arquivada `2026-07-17` | 20/20 |
+| 🔗 `harden-cicd-supply-chain` | ✅ **Aplicada** · arquivada `2026-07-17` | 26/27 ¹ |
+| ☸️ `k8s-production-robustness` | 📋 Planejada | 0/25 |
+| 🚀 `validate-pipeline-live` | 📋 Planejada — **em boa parte já satisfeita** ² | 0/40 |
+
+> ¹ A tarefa em aberto é `5.5` (parcial): a matriz publica verde, mas *"um run superado é cancelado
+> por um push mais novo"* não chegou a ser observado — houve um único push, então nada foi superado.
+> O `concurrency` está declarado e validado; o cancelamento se prova no primeiro par de pushes em
+> sequência rápida.
+>
+> ² Ver a nota na seção da proposta, abaixo.
+
+### ✅ `harden-security-credentials` — Endurecimento de Segurança _(aplicada · 38 tarefas)_
 **Objetivo:** fechar os riscos de segurança que hoje bloqueiam qualquer _deploy_ não-local —
 credenciais placeholder versionadas e superfícies de _dev_ abertas — **antes** de qualquer uso real.
 
@@ -457,23 +475,44 @@ credenciais placeholder versionadas e superfícies de _dev_ abertas — **antes*
 - `network-policy-segmentation` — NetworkPolicies _default-deny_ + _allow_ de menor privilégio
 - _(modificadas)_ `configuration-and-secrets` (sem segredo em texto puro; secret manager) · `database-seed-data` (senha do admin via secret, não o hash `ChangeMe123!`)
 
-### 📋 `harden-cicd-supply-chain` — Endurecimento da Supply-Chain do CI/CD _(planejada · 27 tarefas)_
-**Objetivo:** endurecer a cadeia de suprimentos da esteira da Fase 17 — _actions_ em _tags_ móveis,
-`master` sem _checks_ obrigatórios e imagens GHCR privadas que o cluster não consegue puxar.
-
-**Entregáveis (capacidades):**
-- `github-actions-sha-pinning` — todas as `uses:` fixadas por _commit SHA_ (+ comentário de versão, Dependabot)
-- `branch-protection-rules` — `master`/`main` protegidos: _checks_ `build`/`test` + _review_ obrigatórios, sem _push_ direto
-- `cluster-image-pull-authentication` — `imagePullSecret` (`dockerconfigjson`) do GHCR (ou pacotes públicos)
-- `workflow-supply-chain-hardening` — `permissions` de menor privilégio, `concurrency` e _provenance_/SBOM
-
-### 📋 `fix-microservices-gaps` — Correção das Lacunas dos Microsserviços _(planejada · 20 tarefas)_
+### ✅ `fix-microservices-gaps` — Correção das Lacunas dos Microsserviços _(aplicada · 20 tarefas)_
 **Objetivo:** fechar as duas lacunas herdadas da Fase 15 e expostas pelo _multi-replica_/HPA da Fase 16.
 
 **Entregáveis (capacidades):**
 - `audit-event-production` _(nova)_ — `AuditEventProducer` publicando na fila `audit` (payload compatível com o consumidor)
 - _(modificada)_ `service-discovery` — `service_id` único por instância (pod `HOSTNAME`/UUID) + _deregister_ próprio no shutdown
 - _(modificada)_ `domain-event-producers` — todo create/update/delete emite evento de auditoria (efeito colateral não-bloqueante)
+
+> **Entregue:** validado **ao vivo** contra a stack de 18 contêineres — `service_id` = `HOSTNAME` do
+> contêiner, 2 réplicas coexistindo com ids distintos, e trilha e2e (`User`/`Client`/`Contract`/
+> `Invoice` em `audit_logs`). Dois bugs **pré-existentes** apareceram só por testar ao vivo: o
+> `AuditConsumer` nunca ficava assinado (fila `audit` com 0 consumers) e `contract`/`financial` não
+> tinham `RABBITMQ_URL` — o que travava **toda escrita de negócio**. Ambos corrigidos aqui.
+
+### ✅ `harden-cicd-supply-chain` — Endurecimento da Supply-Chain do CI/CD _(aplicada · 26/27 tarefas)_
+**Objetivo:** endurecer a cadeia de suprimentos da esteira da Fase 17 — _actions_ em _tags_ móveis,
+`master` sem _checks_ obrigatórios e imagens GHCR privadas que o cluster não consegue puxar.
+
+**Entregáveis (capacidades):**
+- `github-actions-sha-pinning` — todas as `uses:` fixadas por _commit SHA_ (+ comentário de versão, Dependabot)
+- `branch-protection-rules` — `master` protegido: _checks_ `build`/`test` + _review_ obrigatórios, sem _push_ direto
+- `cluster-image-pull-authentication` — `imagePullSecret` (`dockerconfigjson`) do GHCR (ou pacotes públicos)
+- `workflow-supply-chain-hardening` — `permissions` de menor privilégio, `concurrency` e _provenance_/SBOM
+
+> **Entregue:** **29/29** `uses:` fixadas por SHA nos 5 workflows. Ao pinar, a auditoria via API
+> revelou **5 das 13 actions presas em runtime Node 20** depreciado — pinar a tag atual teria
+> **congelado** esse débito, então cada uma subiu para a última release **antes** do pin (conferindo
+> que todo input em uso sobrevive ao bump). Hoje: **zero Node 20**, e o Dependabot enumerou as 13 e
+> abriu **0 PRs**, confirmando de forma independente que os pins estão na ponta. Branch protection
+> **ativa** no `master` via [`.github/branch-protection.sh`](../.github/branch-protection.sh)
+> (`enforce_admins=false` — o admin mantém o push direto). Imagens publicadas carregam **provenance +
+> SBOM** (index OCI com `attestation-manifest`, verificado no GHCR). Detalhes em
+> [`docs/ci-cd.md`](./ci-cd.md#supply-chain).
+>
+> **Achado que valeu a mudança:** o `kind` do CI **mascarava** o pull do GHCR (pré-carrega as imagens
+> sob outro nome, `IfNotPresent`) — o deploy ficaria **verde com o pull secret quebrado**, e o
+> estouro só apareceria num cluster real. Um probe dedicado, que puxa a imagem privada pelo nome
+> **remoto** com `imagePullPolicy: Always`, fecha esse falso-positivo.
 
 ### 📋 `k8s-production-robustness` — Robustez de Produção no Kubernetes _(planejada · 25 tarefas)_
 **Objetivo:** tornar o _deploy_ da Fase 16 robusto para produção — _pin_ de imagem imperativo,
@@ -494,6 +533,23 @@ validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue con
 - `ephemeral-deploy-drill-validation` — _deploy_ em kind-in-CI + _dry-run_ + prontidão do core + _drill_ de rollback
 - `repository-secret-configuration` — configurar (ou confirmar degradação graciosa) de `CODECOV_TOKEN`/`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`
 - `pipeline-validation-record` — captura de evidências (URLs/logs), _fix-forward_ do 1º _run_ e registro datado
+
+> ⚠️ **Esta proposta foi em boa parte ultrapassada pelos fatos.** Ela foi escrita quando a esteira só
+> tinha sido validada localmente — mas ao aplicar as duas propostas anteriores a esteira **rodou de
+> verdade** e passou a ser mantida verde. Hoje, na prática:
+>
+> | Capacidade | Situação real |
+> | :--------- | :------------ |
+> | `live-pipeline-execution` | ✅ os 5 workflows verdes nos _runners_ hospedados |
+> | `ghcr-publication-verification` | ✅ as 5 imagens publicadas com `:latest` + `:SHA` (agora com provenance/SBOM) |
+> | `ephemeral-deploy-drill-validation` | ✅ kind-in-CI: _dry-run_ server-side → apply → core pronto → **drill de rollback** |
+> | `repository-secret-configuration` | 🟡 degradação graciosa **confirmada** (sem `KUBE_CONFIG`, `deploy` é pulado limpo); configurar os secrets segue pendente |
+> | `pipeline-validation-record` | 🟡 evidências existem espalhadas (runs, logs, `docs/ci-cd.md`); falta o registro datado consolidado |
+>
+> Antes de aplicá-la, vale **repropô-la ou reduzi-la** ao que sobrou (os dois itens 🟡) — rodar as 40
+> tarefas como escritas seria em grande parte reprovar o que já está provado. Também houve dois
+> _fix-forward_ reais no caminho (CRDs do cert-manager fora da varredura; secret efêmero no CI), que
+> eram exatamente o tipo de coisa que ela pretendia capturar.
 
 ---
 
@@ -519,11 +575,15 @@ validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue con
 | 15 · Microsserviços | 12, 14 |
 | 16 · Kubernetes | 14, 15 |
 | 17 · CI/CD | 1, 13, 15, 16 |
-| 🛡️ harden-security-credentials _(pós-1.0.0)_ | 7, 12, 15, 16 |
-| 🔗 harden-cicd-supply-chain _(pós-1.0.0)_ | 16, 17 |
-| 🧩 fix-microservices-gaps _(pós-1.0.0)_ | 10, 15, 16 |
-| ☸️ k8s-production-robustness _(pós-1.0.0)_ | 16, 17 |
-| 🚀 validate-pipeline-live _(pós-1.0.0)_ | 16, 17 |
+| ✅ harden-security-credentials _(pós-1.0.0)_ | 7, 12, 15, 16 |
+| ✅ fix-microservices-gaps _(pós-1.0.0)_ | 10, 15, 16 |
+| ✅ harden-cicd-supply-chain _(pós-1.0.0)_ | 16, 17 + harden-security-credentials ¹ |
+| 📋 k8s-production-robustness _(pós-1.0.0)_ | 16, 17 |
+| 📋 validate-pipeline-live _(pós-1.0.0)_ | 16, 17 |
+
+> ¹ Dependência **descoberta na aplicação**, não prevista na proposta: como o
+> `harden-security-credentials` removeu o `k8s/secret.yaml` versionado, o pull secret do GHCR teve de
+> nascer já no mesmo padrão (`k8s/secrets/`, nunca commitado, criado por script ou selado).
 
 ---
 

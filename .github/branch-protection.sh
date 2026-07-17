@@ -106,12 +106,36 @@ branch_exists() {
 
 case "$MODE" in
   show)
+    # Usa o --jq EMBUTIDO do gh: um `| jq` externo adicionaria uma dependencia que nem sempre existe
+    # (no Git Bash do Windows, tipicamente nao existe) — e, pior, o `|| echo "(sem protecao)"` que
+    # havia aqui capturava o "jq: command not found" e reportava "sem protecao" para um branch que
+    # ESTAVA protegido. Um falso negativo silencioso num script de seguranca.
+    #
+    # Cuidado com os TIPOS na resposta do GET (eles nao sao uniformes):
+    #   • enforce_admins / allow_force_pushes / allow_deletions -> OBJETO {enabled: bool}
+    #   • dismiss_stale_reviews / strict                        -> BOOLEAN direto
+    # Trocar um pelo outro faz o jq abortar com "expected an object but got: boolean".
     for b in "${BRANCHES[@]}"; do
       echo "--- ${b}"
       if ! branch_exists "$b"; then echo "    (branch nao existe)"; continue; fi
-      gh api "repos/${REPO}/branches/${b}/protection" 2>/dev/null \
-        | jq '{required_status_checks, enforce_admins, required_pull_request_reviews, allow_force_pushes}' \
-        || echo "    (sem protecao)"
+      if ! gh api "repos/${REPO}/branches/${b}/protection" --jq '
+            "    push direto bloqueado : \(.required_pull_request_reviews != null)",
+            "    aprovacoes exigidas   : \(.required_pull_request_reviews.required_approving_review_count // 0)",
+            "    checks exigidos       : \([.required_status_checks.checks[]?.context] | join(", "))",
+            "    strict (up to date)   : \(.required_status_checks.strict)",
+            "    enforce_admins        : \(.enforce_admins.enabled)",
+            "    force push permitido  : \(.allow_force_pushes.enabled)",
+            "    delecao permitida     : \(.allow_deletions.enabled)"
+          ' 2>/dev/null; then
+        # Distingue "sem protecao" (404 legitimo) de um erro de chamada — antes tudo virava
+        # "(sem protecao)", inclusive falha de rede, token sem escopo ou binario ausente.
+        if gh api "repos/${REPO}/branches/${b}/protection" 2>&1 | grep -q "Branch not protected"; then
+          echo "    (sem protecao)"
+        else
+          echo "    ERRO ao consultar a protecao (token sem escopo 'repo'? sem rede?):" >&2
+          gh api "repos/${REPO}/branches/${b}/protection" 2>&1 | head -2 >&2
+        fi
+      fi
     done
     exit 0
     ;;

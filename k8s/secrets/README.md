@@ -147,6 +147,8 @@ kubectl -n energyhub get serviceaccount energyhub-sa -o jsonpath='{.imagePullSec
 > imagem que já baixaram. Para revalidar o pull:
 > `kubectl -n energyhub rollout restart deployment -l app.kubernetes.io/part-of=energyhub`.
 
+<a id="pacotes-publicos"></a>
+
 ### 🔀 Alternativa: tornar os pacotes públicos
 
 Dá para dispensar o pull secret **inteiro** publicando as imagens como públicas

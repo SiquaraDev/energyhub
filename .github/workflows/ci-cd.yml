@@ -234,8 +234,19 @@ jobs:
       # Este probe fecha esse buraco: referencia a imagem pelo nome REMOTO E PRIVADO
       # (ghcr.io/<owner>/...:<sha>, que NÃO está no nó) com imagePullPolicy Always, forçando um pull
       # autenticado real. A imagem é privada (GET anônimo no manifest devolve 401), logo só sobe se
-      # o SA entregou a credencial. `command: sleep` sobrepõe o uvicorn: aqui se testa o PULL, não
-      # o app — sem isso o container morreria por falta de banco e confundiria o diagnóstico.
+      # o SA entregou a credencial.
+      #
+      # O `command: [sleep, 600]` do pod sobrepõe o uvicorn: aqui se testa o PULL, não o app — sem
+      # isso o container morreria por falta de banco e confundiria o diagnóstico. E o sleep é MUITO
+      # maior que o timeout do wait de propósito: com um sleep curto o container poderia terminar
+      # antes de o wait observar Ready, o pod iria a Succeeded (Ready=False para sempre) e o wait
+      # travaria até o timeout — reportando FALHA numa verificação que na verdade PASSOU.
+      #
+      # ATENÇÃO ao editar o heredoc abaixo: ele é NÃO-quotado (`<<EOF`), porque precisa expandir
+      # ${OWNER} e ${GITHUB_SHA}. Isso significa que o bash também faz SUBSTITUIÇÃO DE COMANDO no
+      # corpo — qualquer texto entre crases é EXECUTADO, inclusive dentro de um "comentário" YAML.
+      # Não use crases nem `$(...)` aqui. (Um comentário com crases já causou exatamente isso: o
+      # bash rodou o comando e ainda apagou a palavra do comentário aplicado.)
       - name: "Verify GHCR pull secret pulls a PRIVATE image"
         run: |
           cat <<EOF | kubectl apply -f -
@@ -251,10 +262,6 @@ jobs:
               - name: probe
                 image: ghcr.io/${OWNER}/energyhub-auth-service:${GITHUB_SHA}
                 imagePullPolicy: Always
-                # `sleep` bem MAIOR que o timeout do wait abaixo, de proposito: com um sleep curto o
-                # container poderia terminar antes de o wait observar Ready — o pod iria a Succeeded
-                # (Ready=False para sempre) e o wait travaria ate o timeout, reportando FALHA numa
-                # verificacao que na verdade PASSOU. O pod e apagado logo apos o wait resolver.
                 command: ["sleep", "600"]
           EOF
           if kubectl -n energyhub wait --for=condition=Ready pod/ghcr-pull-probe --timeout=180s; then
