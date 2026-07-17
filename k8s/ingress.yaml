@@ -7,8 +7,12 @@
 #   - um ingress controller instalado (NGINX Ingress — `ingressClassName: nginx`) e o host mapeado
 #     localmente para o endereço do ingress (ex.: `/etc/hosts` → 127.0.0.1 energyhub.local, com
 #     `minikube tunnel`/port-forward conforme o cluster);
-#   - o cert-manager instalado e o `k8s/cert-manager-issuer.yaml` aplicado — ele cria o emissor
-#     `energyhub-ca-issuer` e o Secret `energyhub-tls` (par cert/chave) consumido pelo `tls:` abaixo.
+#   - o cert-manager instalado e o `k8s/cert-manager/` aplicado (`kubectl apply -f k8s/cert-manager/`)
+#     — ele cria o emissor `energyhub-ca-issuer` e o Secret `energyhub-tls` consumido pelo `tls:`
+#     abaixo. Fica num SUBDIRETORIO de proposito: `kubectl apply -f k8s/` e NAO-recursivo, entao os
+#     CRDs do cert-manager (Issuer/Certificate) nao quebram o apply em clusters sem ele instalado
+#     (ex.: o kind efemero do CI). Sem cert-manager o Ingress ainda aplica: a anotacao fica inerte e
+#     o NGINX serve o certificado default ate o Secret `energyhub-tls` existir.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

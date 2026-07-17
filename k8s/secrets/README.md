@@ -33,6 +33,8 @@ Todos os serviços referenciam estas chaves via `secretKeyRef` para `name: energ
 
 - `SECRET_KEY` — chave de assinatura JWT (a MESMA em todos os serviços; auth assina, os demais validam).
 - `INTERNAL_API_KEY` — segredo compartilhado das chamadas serviço-a-serviço (`/internal`, forwardAuth).
+- `TRAEFIK_DASHBOARD_USERS` — htpasswd (`usuario:hash`) do basic-auth do dashboard do Traefik,
+  projetado como arquivo em `/etc/traefik-auth/users`. **Sem esta chave o pod do Traefik nao sobe.**
 - `POSTGRES_PASSWORD`, `RABBITMQ_PASSWORD` — senhas dos backends stateful.
 - `AUTH_DATABASE_URL`, `CLIENT_DATABASE_URL`, `CONTRACT_DATABASE_URL`, `FINANCIAL_DATABASE_URL`,
   `AUDIT_DATABASE_URL` — um banco por serviço (database-per-service), com a senha **embutida** na URL.

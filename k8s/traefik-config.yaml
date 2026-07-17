@@ -41,8 +41,11 @@ data:
       # Provider de arquivo p/ a config DINÂMICA (router + middleware do dashboard).
       # Lê os arquivos da chave `dynamic.yml` deste ConfigMap quando montada no diretório
       # /etc/traefik/dynamic/. Mantém as credenciais fora da config estática.
+      # O ConfigMap e montado em /etc/traefik, entao cada chave vira um arquivo: `dynamic.yml` e
+      # exatamente /etc/traefik/dynamic.yml. Por isso `filename` (e NAO `directory`, que apontaria
+      # para um diretorio inexistente e deixaria o dashboard sem rota).
       file:
-        directory: /etc/traefik/dynamic
+        filename: /etc/traefik/dynamic.yml
         watch: true
 
     accessLog: {}
@@ -75,6 +78,9 @@ data:
         # Basic-auth do dashboard. As credenciais NÃO são versionadas aqui: o arquivo
         # htpasswd (hash bcrypt) é projetado a partir do energyhub-secret e montado em
         # /etc/traefik/auth/users. Assim nenhum hash/senha fica no repositório.
+        # htpasswd (`usuario:hash`) vem da chave TRAEFIK_DASHBOARD_USERS do energyhub-secret,
+        # projetada num volume PROPRIO em /etc/traefik-auth (caminho separado de /etc/traefik de
+        # proposito: montar dentro do mount read-only do ConfigMap nao funciona).
         dashboard-auth:
           basicAuth:
-            usersFile: /etc/traefik/auth/users
+            usersFile: /etc/traefik-auth/users

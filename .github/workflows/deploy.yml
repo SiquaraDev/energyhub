@@ -60,10 +60,26 @@ jobs:
       # Namespace PRIMEIRO: `kubectl apply -f k8s/` aplica em ordem alfabética, então recursos
       # namespaced (audit-*, auth-*, ...) chegariam ANTES de namespace.yaml num cluster novo e
       # falhariam com "namespace not found". Aplicar o namespace antes garante a ordem.
-      - name: Apply manifests
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      # `energyhub-secret` NAO e versionado (harden-security-credentials): num cluster real ele vem
+      # de um SealedSecret/ExternalSecret (ver k8s/secrets/), aplicado FORA desta esteira. Sem ele os
+      # pods ficam em CreateContainerConfigError e o deploy so falharia adiante por timeout — este
+      # preflight troca isso por um erro imediato e explicito.
+      - name: "Preflight: energyhub-secret must exist"
         run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/
+          if ! kubectl -n energyhub get secret energyhub-secret >/dev/null 2>&1; then
+            echo "::error::Secret 'energyhub-secret' ausente no namespace energyhub."
+            echo "Aplique o SealedSecret/ExternalSecret antes do deploy — veja k8s/secrets/README.md."
+            exit 1
+          fi
+          echo "energyhub-secret presente"
+
+      # `k8s/cert-manager/` e `k8s/secrets/` ficam FORA da varredura (`-f k8s/` e nao-recursivo):
+      # dependem de controllers (cert-manager / sealed-secrets) instalados como pre-requisito.
+      - name: Apply manifests
+        run: kubectl apply -f k8s/
 
       # docker.yml roda em paralelo (mesmo push) e pode ainda não ter publicado as imagens SHA.
       # Espera-as no GHCR antes de fixá-las, senão o `set image` aponta para uma tag inexistente

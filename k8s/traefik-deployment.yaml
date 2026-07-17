@@ -52,7 +52,20 @@ spec:
             - name: traefik-config
               mountPath: /etc/traefik
               readOnly: true
+            # htpasswd do dashboard, projetado do energyhub-secret. Caminho FORA de /etc/traefik
+            # (montar dentro do mount read-only do ConfigMap nao funciona).
+            - name: dashboard-auth
+              mountPath: /etc/traefik-auth
+              readOnly: true
       volumes:
         - name: traefik-config
           configMap:
             name: traefik-config
+        # So a chave TRAEFIK_DASHBOARD_USERS vira o arquivo `users` (as demais chaves do
+        # energyhub-secret NAO sao expostas ao Traefik).
+        - name: dashboard-auth
+          secret:
+            secretName: energyhub-secret
+            items:
+              - key: TRAEFIK_DASHBOARD_USERS
+                path: users

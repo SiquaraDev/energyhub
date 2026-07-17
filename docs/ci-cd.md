@@ -63,17 +63,27 @@ _registry-backed_: `cache-from/to: type=registry,ref=ghcr.io/<owner>/energyhub-<
 1. **Gate:** um job lê `KUBE_CONFIG` (via env — secrets não podem ir em `if:`) e emite `has_kubeconfig`.
    Sem o secret, o job `deploy` é **pulado limpo**.
 2. **`kubectl` do secret** (`azure/k8s-set-context@v4`, method `kubeconfig`).
-3. **`kubectl apply -f k8s/`** — reconcilia o estado desejado.
-4. **Pin por SHA:** `kubectl set image deployment/<svc>-service <svc>-service=ghcr.io/<owner>/energyhub-<svc>-service:<sha>`
+3. **Preflight do `energyhub-secret`:** ele **não é versionado** (`harden-security-credentials`); num
+   cluster real vem do **SealedSecret/ExternalSecret** ([`k8s/secrets/`](../k8s/secrets/README.md)),
+   aplicado **fora** desta esteira. O preflight falha na hora com erro explícito se ele faltar.
+4. **`kubectl apply -f k8s/`** — reconcilia o estado desejado. A varredura é **não-recursiva** de
+   propósito: `k8s/cert-manager/` e `k8s/secrets/` ficam de fora porque declaram **CRDs** que exigem
+   controllers instalados (cert-manager / sealed-secrets) — senão o apply quebra com
+   `no matches for kind "Issuer"` em qualquer cluster sem eles.
+5. **Pin por SHA:** `kubectl set image deployment/<svc>-service <svc>-service=ghcr.io/<owner>/energyhub-<svc>-service:<sha>`
    fixa a imagem exata do commit **sem editar os manifestos** (resolve a _Open Question_ de rastreabilidade).
-5. **Gate de rollout:** `kubectl rollout status` (5 serviços + `traefik`) e `kubectl wait --for=condition=available`.
-6. **Rollback (`if: failure()`):** `kubectl rollout undo` reverte para a última revisão boa.
-7. **Slack (`if: failure()`):** notifica só se `SLACK_WEBHOOK_URL` existir.
+6. **Gate de rollout:** `kubectl rollout status` (5 serviços + `traefik`) e `kubectl wait --for=condition=available`.
+7. **Rollback (`if: failure()`):** `kubectl rollout undo` reverte para a última revisão boa.
+8. **Slack (`if: failure()`):** notifica só se `SLACK_WEBHOOK_URL` existir.
 
 ### ci-cd.yml — validação de deploy GRÁTIS (kind efêmero)
 
 O estágio `deploy` do pipeline combinado **não precisa de nenhum cluster 24/7**: sobe um **kind**
-no runner, carrega as imagens recém-publicadas (tag SHA → `energyhub-<svc>-service:latest`), roda um
+no runner, carrega as imagens recém-publicadas (tag SHA → `energyhub-<svc>-service:latest`), cria o
+namespace e um **`energyhub-secret` efêmero com credenciais aleatórias** (`openssl rand`) — já que o
+Secret deixou de ser versionado e um kind descartável não justifica um controller de selagem; nada
+sensível entra no repositório e os valores aleatórios ainda satisfazem a **guarda de produção**
+(o ConfigMap usa `ENVIRONMENT=production`). Em seguida roda um
 **dry-run server-side de todos os manifestos**, aplica `k8s/`, reduz réplicas para 1 (RAM do runner),
 aguarda o **subconjunto core** (Postgres/Redis/RabbitMQ/Consul + auth/client) e executa um **drill de
 rollback**: injeta uma imagem quebrada, confirma que o rollout falha e que `rollout undo` recupera.

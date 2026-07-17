@@ -153,11 +153,28 @@ jobs:
             kind load docker-image "$dst" --name energyhub
           done
 
-      # Validação server-side de TODOS os manifestos contra a API real do cluster (schema + admission).
-      - name: Server-side dry-run of all manifests
+      # Namespace primeiro: o dry-run server-side dos recursos namespaced exige o namespace existindo.
+      - name: Create namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      # `energyhub-secret` NAO e mais versionado (harden-security-credentials): num cluster real ele
+      # e materializado por um SealedSecret/ExternalSecret (ver k8s/secrets/). No kind EFEMERO do CI
+      # geramos credenciais aleatorias e criamos o Secret imperativamente — nada sensivel entra no
+      # repositorio. Valores aleatorios tambem satisfazem a guarda de producao (o ConfigMap usa
+      # ENVIRONMENT=production, que aborta o boot com credencial vazia/placeholder). As URLs embutem
+      # a senha, entao usam o MESMO valor consumido por postgres.yaml/rabbitmq.yaml.
+      - name: Create ephemeral energyhub-secret (CI only)
         run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply --dry-run=server -f k8s/
+          PG_PW="$(openssl rand -hex 16)"
+          MQ_PW="$(openssl rand -hex 16)"
+          DASH_HASH="$(openssl passwd -apr1 "$(openssl rand -hex 12)")"
+          kubectl -n energyhub create secret generic energyhub-secret             --from-literal=SECRET_KEY="$(openssl rand -hex 32)"             --from-literal=INTERNAL_API_KEY="$(openssl rand -hex 32)"             --from-literal=TRAEFIK_DASHBOARD_USERS="energyhub:${DASH_HASH}"             --from-literal=POSTGRES_PASSWORD="${PG_PW}"             --from-literal=RABBITMQ_PASSWORD="${MQ_PW}"             --from-literal=AUTH_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/authdb"             --from-literal=CLIENT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/clientdb"             --from-literal=CONTRACT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/contractdb"             --from-literal=FINANCIAL_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/financialdb"             --from-literal=AUDIT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/auditdb"             --from-literal=RABBITMQ_URL="amqp://energyhub:${MQ_PW}@rabbitmq-service:5672/"
+
+      # Validação server-side de TODOS os manifestos contra a API real do cluster (schema + admission).
+      # `k8s/cert-manager/` e `k8s/secrets/` ficam FORA da varredura (`-f k8s/` e nao-recursivo): ambos
+      # dependem de controllers (cert-manager / sealed-secrets) que o kind do CI nao instala.
+      - name: Server-side dry-run of all manifests
+        run: kubectl apply --dry-run=server -f k8s/
 
       - name: Apply manifests
         run: kubectl apply -f k8s/
