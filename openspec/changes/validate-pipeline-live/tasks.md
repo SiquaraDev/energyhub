@@ -1,75 +1,47 @@
-## 1. Pre-flight and secret posture
+# Tasks — validate-pipeline-live (reduced re-proposal)
 
-- [ ] 1.1 Confirm the five workflows (`build.yml`, `test.yml`, `docker.yml`, `deploy.yml`, `ci-cd.yml`) and `docs/ci-cd.md` are present on `master` and `actionlint` is still clean locally
-- [ ] 1.2 Decide the secret posture: either configure optional secrets (task group 2) or validate the out-of-the-box secretless path
-- [ ] 1.3 Confirm the GHCR owner resolves to `siquaradev` (lowercased `SiquaraDev`) and note the target refs `ghcr.io/siquaradev/energyhub-<service>`
+> **Scope note.** The original 40-task plan (trigger the first run, watch each of Build/Test/Docker/
+> CI-CD, remediate, verify) is **retired**: the pipeline was already proven green live by the pushes
+> of the four prior post-1.0.0 changes. The three capabilities `live-pipeline-execution`,
+> `ghcr-publication-verification`, and `ephemeral-deploy-drill-validation` are dropped; their proof is
+> folded into `pipeline-validation-record`. What remains is to write the durable record and document
+> the secret posture.
 
-## 2. Repository secret configuration (user-driven, optional)
+## 1. Assemble the evidence (already-green runs)
 
-- [ ] 2.1 (Optional) Add `CODECOV_TOKEN` as a repository secret, or record that the coverage upload soft-fails without it (`fail_ci_if_error: false`)
-- [ ] 2.2 (Optional) Add `KUBE_CONFIG` as a repository secret for the real-cluster `deploy.yml` path, or record that the deploy gate skips cleanly without it
-- [ ] 2.3 (Optional) Add `SLACK_WEBHOOK_URL` as a repository secret, or record that the failure-notification step no-ops without it
-- [ ] 2.4 Confirm no secret material appears in any committed file or workflow log
+- [ ] 1.1 Identify the validated commit SHA(s) whose `Build`, `Test`, `Docker`, and `CI/CD Pipeline`
+      runs concluded green (e.g. the `k8s-production-robustness` push and prior), and collect their run
+      references
+- [ ] 1.2 Capture the GHCR listing for the five `energyhub-<service>` packages showing `latest` + the
+      commit-SHA tag (and the provenance/SBOM attestation on the SHA tag)
+- [ ] 1.3 Extract the rollback-drill recovery excerpt from the `ci-cd.yml` `deploy` job log ("rollout
+      failed as expected → `rollout undo` → recovered"), and the core-stack `condition met` lines
 
-## 3. Trigger the first live run (user-driven)
+## 2. Write the dated validation record
 
-- [ ] 3.1 Push a commit to `master` to trigger `Build`, `Test`, `Docker`, and `CI/CD Pipeline` on GitHub-hosted runners
-- [ ] 3.2 Record the resolved commit SHA and the four workflow run URLs
+- [ ] 2.1 Create `docs/pipeline-validation.md` (and/or a dated "verified live" note in `docs/ci-cd.md`)
+      recording: the validated commit SHA(s), the run references, the GHCR package/tag listing, and
+      the rollback-drill recovery excerpt
+- [ ] 2.2 In that record, catalog the first-run breakages found and fixed **live** during the prior
+      pushes, each with its cause and fix: cert-manager CRDs excluded from the non-recursive apply; a
+      GitHub 500 incident that masqueraded as a Docker failure (proven by a zero-change re-run);
+      a backtick-in-heredoc that executed as a command; a `jq`-in-`--show` false negative; the invalid
+      Kafka KRaft `CLUSTER_ID`
+- [ ] 2.3 State the record is a **dated, point-in-time attestation** scoped to the cited SHA(s), and
+      that ongoing green is enforced by the applied branch protection (Build/Test required)
 
-## 4. Validate the Build workflow
+## 3. Record the optional-secret posture
 
-- [ ] 4.1 Confirm the `Build` run installs Python 3.12 + Poetry, runs `poetry build`, and concludes green
-- [ ] 4.2 Confirm `pytest --cov` meets the embedded 80% coverage gate
-- [ ] 4.3 Confirm the Codecov upload behaves per the chosen secret posture (uploads with token, or soft-fails without failing the job)
+- [ ] 3.1 Document that the pipeline runs green with only the ambient `GITHUB_TOKEN`, and the effect +
+      enable-step of each optional secret: `CODECOV_TOKEN` (coverage upload soft-fails,
+      `fail_ci_if_error: false`), `KUBE_CONFIG` (gate emits `has_kubeconfig=false`, real deploy
+      skipped clean), `SLACK_WEBHOOK_URL` (failure notification no-ops via `env … != ''`)
+- [ ] 3.2 Confirm no secret material appears in any committed file or the record itself
 
-## 5. Validate the Test workflow
+## 4. Validation
 
-- [ ] 5.1 Confirm Postgres 16 and Redis 7 service containers start and pass their health checks
-- [ ] 5.2 Confirm `alembic upgrade head` applies the schema before the integration step
-- [ ] 5.3 Confirm the integration step runs against the service containers (integration tests execute, not skipped) and the job concludes green
-- [ ] 5.4 Confirm the `if: always()` step uploads the test/coverage artifact
-
-## 6. Validate the Docker workflow and GHCR publication
-
-- [ ] 6.1 Confirm the matrix builds all five service images (`auth`, `client`, `contract`, `financial`, `audit`) via Buildx
-- [ ] 6.2 Confirm login to `ghcr.io` uses `github.actor` + `GITHUB_TOKEN` with `packages: write` and requires no external registry secret
-- [ ] 6.3 Confirm the five `energyhub-<service>` packages appear under the `siquaradev` owner in GHCR
-- [ ] 6.4 Confirm each image carries both the `latest` tag and the commit-SHA tag, and record the package/tag listing
-
-## 7. Validate the ephemeral-kind deploy stage (ci-cd.yml)
-
-- [ ] 7.1 Confirm the combined pipeline runs `build-and-test` → `build-and-push` → `deploy` in order via `needs`
-- [ ] 7.2 Confirm the `deploy` job creates the `energyhub` kind cluster and frees disk space as needed
-- [ ] 7.3 Confirm each SHA-tagged image is pulled, retagged to `energyhub-<svc>-service:latest`, and loaded into kind
-- [ ] 7.4 Confirm the server-side dry-run passes for every `k8s/` manifest, then the real apply succeeds
-- [ ] 7.5 Confirm services are scaled to 1 replica and the core stack (Postgres/Redis/RabbitMQ/Consul + auth/client) reaches `condition=available` within timeout
-- [ ] 7.6 Confirm the rollback drill: bad image → rollout does NOT complete → `rollout undo` → `auth-service` recovers
-
-## 8. Validate graceful degradation
-
-- [ ] 8.1 Confirm the pipeline is green using only the ambient `GITHUB_TOKEN` (no optional secrets), if validating the secretless path
-- [ ] 8.2 Confirm the `deploy.yml` gate emits `has_kubeconfig=false` and skips the real deploy cleanly when `KUBE_CONFIG` is absent
-- [ ] 8.3 Confirm the Slack step is skipped (guarded by `env.SLACK_WEBHOOK_URL != ''`) and does not fail the workflow when the webhook is absent
-
-## 9. Remediate first-run breakages
-
-- [ ] 9.1 Triage any red run and identify the runner-only root cause (action version drift, casing, disk/RAM, publish race)
-- [ ] 9.2 Apply a minimal fix in the affected workflow (do not weaken acceptance criteria) and re-push
-- [ ] 9.3 Repeat until `Build`, `Test`, `Docker`, and `CI/CD Pipeline` all conclude green on the same commit
-
-## 10. (Optional) Prove the real-cluster deploy path
-
-- [ ] 10.1 If a real cluster is available, make the GHCR packages public or configure an `imagePullSecret` so the cluster can pull the SHA-tagged images
-- [ ] 10.2 With `KUBE_CONFIG` set, push to `master` and confirm `deploy.yml` applies `k8s/`, pins images to the SHA, verifies rollout, and (on injected failure) rolls back and notifies
-
-## 11. Record the verified pipeline
-
-- [ ] 11.1 Assemble the evidence set: run URLs, validated commit SHA, GHCR package/tag listing, rollback-drill recovery log excerpt
-- [ ] 11.2 Add a dated "verified live" note to `docs/ci-cd.md` and/or a validation record referencing the evidence and the commit SHA
-- [ ] 11.3 Note any follow-ups surfaced by the live run (e.g. branch protection requiring `Build`/`Test`, GHCR visibility decision)
-
-## 12. Validation
-
-- [ ] 12.1 Confirm all four workflows concluded green on the validated commit and the images are published with both tags
-- [ ] 12.2 Confirm the ephemeral-kind deploy and rollback drill passed end to end
-- [ ] 12.3 Run `openspec validate validate-pipeline-live --strict` and confirm the change is valid
+- [ ] 4.1 Verify every cited commit SHA and image tag in the record is real (resolvable in the repo /
+      GHCR), and the degradation claims match the observed run behavior
+- [ ] 4.2 Run the plaintext-secrets guard (`scripts/check_no_plaintext_secrets.sh`) and confirm the
+      record introduced no credential
+- [ ] 4.3 Run `openspec validate validate-pipeline-live --strict` and confirm the change is valid
