@@ -7,6 +7,11 @@ fechando o roadmap na versão `1.0.0`.
 Consome, sem alterar: o projeto Poetry (Fase 1), a suíte de testes (Fase 13), os `Dockerfile`s por
 serviço (Fase 15) e os manifestos `k8s/` (Fase 16).
 
+> ✅ **Provado verde ao vivo (2026-07-17).** Os 5 workflows rodaram verdes nos runners hospedados do
+> GitHub para o commit `434a094` (e a série pós-`1.0.0`) — build, testes, publicação no GHCR e o
+> deploy+rollback no kind. A atestação datada, com links dos runs e o catálogo de correções
+> _fix-forward_, está em [`docs/pipeline-validation.md`](./pipeline-validation.md).
+
 ---
 
 ## 🧭 Os workflows
