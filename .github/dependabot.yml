@@ -1,0 +1,40 @@
+# Dependabot — mantém os SHAs pinados das GitHub Actions FRESCOS (harden-cicd-supply-chain).
+#
+# Por que isto existe: pinar por SHA (ver .github/workflows/*) fecha o vetor de tag-hijack, mas
+# troca um risco por outro — um pin nunca revisitado CONGELA a action, inclusive suas correções de
+# segurança. Foi exatamente o que aconteceu antes desta mudança: 5 das 13 actions estavam presas em
+# runtime Node 20 (já depreciado) com major nova disponível, sem nada avisando. O Dependabot
+# transforma "pinar e esquecer" em "pinar e revisar": ele abre PRs bumpando o SHA **e** o comentário
+# de versão juntos, então a imutabilidade se mantém sem virar estagnação.
+#
+# Escopo: só o ecossistema github-actions. As deps Python vivem em energyhub/poetry.lock e ficam
+# fora daqui de propósito — bumpá-las é uma mudança de runtime da aplicação, não de supply chain
+# de CI, e mereceria sua própria política de teste.
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    # "/" é o valor CORRETO aqui e NÃO é o mesmo que ".github/workflows": para este ecossistema o
+    # Dependabot interpreta o directory como a RAIZ do repo e varre .github/workflows/ por baixo.
+    # Apontar direto para .github/workflows faz ele não encontrar nada.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Agrupa todos os bumps num único PR por semana. Sem isto seriam ~13 PRs concorrentes na
+    # primeira execução (um por action) — volume que leva a aprovar no automático, que é justamente
+    # o hábito que a revisão deveria impedir.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+    # Os PRs do Dependabot alvejam o branch default (master). Com a branch protection ativa
+    # (.github/branch-protection.sh) eles passam pelos mesmos required checks build/test que
+    # qualquer outro PR — é assim que um bump ruim é pego ANTES do merge, e não em produção.
+    target-branch: "master"

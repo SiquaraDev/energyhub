@@ -45,8 +45,10 @@ tags **`:latest`** (rolling) e **`:${{ github.sha }}`** (imutável, rastreável 
 
 - **Login** com `github.actor` + `GITHUB_TOKEN` (sem PAT). Exige `permissions: { packages: write }`.
 - O owner do ref OCI é **minúsculo** (`SiquaraDev` → `siquaradev`) — feito via `${GITHUB_REPOSITORY_OWNER,,}`.
-- Um pacote novo nasce **privado**. Para o cluster puxar sem auth, torne-o **público** (Package
-  settings → Change visibility) **ou** configure um `imagePullSecret` no cluster.
+- Um pacote novo nasce **privado** — e continua assim. O cluster autentica com o
+  **`ghcr-pull-secret`** entregue pelo SA `energyhub-sa` (ver [🔐 Supply chain](#-supply-chain-endurecimento-pós-10)).
+- Cada imagem publicada carrega **provenance** (de qual commit/workflow/builder saiu) e **SBOM**
+  (inventário de componentes), via `provenance: true`/`sbom: true` no `docker/build-push-action`.
 - **Trocar por Docker Hub / AWS ECR:** muda-se apenas o **passo de login** e o **prefixo das tags**
   (secrets `DOCKER_USERNAME`/`DOCKER_PASSWORD`, ou `ECR_REGISTRY` + credenciais AWS / OIDC). A
   estrutura de build/tag/push permanece idêntica.
@@ -107,9 +109,88 @@ O plano da Fase 17 foi escrito antes de as Fases 15/16 materializarem; alguns po
   `@pytest.mark.integration`; a integração é **skip-guarded** (pula sem Postgres). Os dois passos
   distintos são obtidos pela presença/ausência do banco (endpoint morto no passo unit).
 - **Slack:** `8398a7/action-slack` foi **arquivado (2025)**; usa-se o oficial
-  **`slackapi/slack-github-action@v2`** (`webhook-type: incoming-webhook`).
+  **`slackapi/slack-github-action`** (`webhook-type: incoming-webhook`), hoje pinado em `v4.0.0`.
 - **Deploy real:** sem um cluster acessível pelo Actions, `deploy.yml` fica pronto e **pulado** até
   `KUBE_CONFIG` existir; a prova _live_ de deploy roda no `ci-cd.yml` via kind.
+
+---
+
+## 🔐 Supply chain — endurecimento pós-`1.0.0`
+
+A Fase 17 entregou uma esteira que **funciona**; esta camada a torna **confiável**. Três buracos
+foram fechados (change `harden-cicd-supply-chain`):
+
+### 1. Pins imutáveis por SHA + Dependabot
+
+Toda action era referenciada por **tag móvel** (`@v7`, `@v1`). Uma tag pode ser reapontada por um
+upstream comprometido para executar código arbitrário **com o token do workflow** — o vetor do
+incidente `tj-actions`. Agora as **29 referências** (13 actions distintas) usam SHA de 40 chars:
+
+```yaml
+uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+```
+
+O SHA é imutável; o comentário preserva a legibilidade. O
+[`.github/dependabot.yml`](../.github/dependabot.yml) abre um PR **agrupado semanal** bumpando SHA e
+comentário juntos — sem ele, "pinar" viraria "congelar".
+
+> **O congelamento não era hipotético.** Ao pinar, a auditoria achou **5 das 13 actions presas em
+> runtime Node 20** (já depreciado; o runner as forçava para o Node 24 e avisava), todas com major
+> nova disponível: `actions/cache` v4→**v6**, `actions/upload-artifact` v4→**v7**,
+> `docker/metadata-action` v5→**v6**, `Azure/k8s-set-context` v4→**v5**,
+> `slackapi/slack-github-action` v2→**v4** (+ `codecov-action` v5→**v7**). Todas foram subidas junto
+> com o pin, após conferir na API que cada input em uso sobreviveu ao bump. Hoje: **zero Node 20**.
+
+### 2. Branch protection (ação de admin — **não aplicada** automaticamente)
+
+Vive nas *settings* do GitHub, fora do YAML — então virou script versionado:
+[`.github/branch-protection.sh`](../.github/branch-protection.sh).
+
+```bash
+bash .github/branch-protection.sh          # dry-run: mostra o plano, não altera nada
+bash .github/branch-protection.sh --apply  # aplica (pede confirmação; precisa ser admin)
+bash .github/branch-protection.sh --show   # inspeciona o estado vigente
+bash .github/branch-protection.sh --remove --yes   # rollback
+```
+
+Regras: push direto bloqueado, ≥1 aprovação, required checks **`build`** + **`test`**, sem
+force-push/deleção.
+
+- **Só `build` e `test`** são exigidos: `deploy` está de fora porque **dois** workflows expõem um
+  check com esse mesmo nome (ambíguo), e gatear merge em deploy prenderia o PR à disponibilidade do
+  registry/cluster. Os checks são fixados ao **app 15368** (GitHub Actions) para que nenhuma outra
+  integração satisfaça a exigência publicando um check homônimo.
+- **Armadilha do repo solo:** o GitHub **não deixa você aprovar seu próprio PR**. Exigir 1 aprovação
+  com `ENFORCE_ADMINS=true` num repo de um mantenedor só **trava todo merge**. Por isso o default é
+  `ENFORCE_ADMINS=false` — colaboradores passam pelo fluxo completo e o admin mantém a válvula de
+  escape. Só ligue quando houver um segundo mantenedor que possa aprovar.
+- Hoje só existe o branch `master`; o script **pula** `main` com aviso em vez de estourar 404.
+
+### 3. Pull autenticado das imagens privadas
+
+Os pacotes GHCR são privados (`GET` anônimo no manifest → `401`). O `kind` do CI **mascarava** isso:
+ele pré-carrega as imagens com `kind load` sob outro nome e `imagePullPolicy: IfNotPresent`, então o
+kubelet nunca fala com o GHCR — o deploy ficaria verde mesmo com o pull secret quebrado. Duas peças
+resolvem, e um probe dedicado impede o falso-positivo:
+
+- [`k8s/serviceaccount.yaml`](../k8s/serviceaccount.yaml) — SA `energyhub-sa` referenciando o
+  `ghcr-pull-secret`; os 5 Deployments apontam para ele (um ponto de verdade, não 5 cópias).
+- [`k8s/secrets/create-ghcr-pull-secret.sh`](../k8s/secrets/README.md) — cria o Secret a partir de um
+  PAT `read:packages` (nunca versionado). No CI, do `GITHUB_TOKEN` **efêmero** do run.
+- **`Verify GHCR pull secret pulls a PRIVATE image`** (em `ci-cd.yml`) — sobe um pod que referencia a
+  imagem pelo nome **remoto** com `imagePullPolicy: Always`, forçando um pull autenticado real.
+- O `deploy.yml` ganhou um **preflight** do `ghcr-pull-secret`, simétrico ao do `energyhub-secret`.
+
+A alternativa (**pacotes públicos**, dispensando o secret) está documentada com o trade-off em
+[`k8s/secrets/README.md`](../k8s/secrets/README.md#-alternativa-tornar-os-pacotes-públicos).
+
+### 4. Concurrency + least-privilege
+
+Todo workflow declara `concurrency: { group: <workflow>-<ref>, cancel-in-progress: true }` — um push
+novo cancela o run em voo. Crítico no `deploy.yml`/`ci-cd.yml`: sem o guard, dois commits em
+sequência disputam o cluster e **o rollout do commit mais antigo pode vencer**. O default de
+`permissions` segue `contents: read`, com `packages: write` só no job que publica e `packages: read`
+no que só puxa.
 
 ---
 
@@ -117,8 +198,11 @@ O plano da Fase 17 foi escrito antes de as Fases 15/16 materializarem; alguns po
 
 - Nunca comitar credenciais — tudo em **GitHub Secrets**; `GITHUB_TOKEN` tem escopo mínimo por padrão.
 - Preferir **tags SHA** (imutáveis) a `:latest` em deploys reprodutíveis (o pin por SHA já faz isso).
-- Antes de um deploy real: tornar os pacotes GHCR públicos **ou** configurar `imagePullSecret`, e
-  rotacionar as credenciais placeholder herdadas (ver notas das Fases 7/12/15/16).
+- Antes de um deploy real: provisionar o **`ghcr-pull-secret`** (`k8s/secrets/create-ghcr-pull-secret.sh`)
+  — os preflights do `deploy.yml` falham cedo e com mensagem explícita se ele ou o `energyhub-secret`
+  faltarem. Rotacionar as credenciais placeholder herdadas (ver notas das Fases 7/12/15/16).
+- **Aplicar a branch protection** (`bash .github/branch-protection.sh --apply`) — é uma ação de
+  **admin**, deliberadamente fora de qualquer esteira automática.
 - Rollback restaura disponibilidade, mas a mudança que falhou **ainda precisa ser investigada** — os
   logs/artefatos e a notificação garantem que a falha não passe silenciosa.
 

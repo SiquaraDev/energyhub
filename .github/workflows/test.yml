@@ -6,6 +6,10 @@
 # não responde). Então "unit" e "integração" viram DOIS passos distintos pela presença/ausência
 # do banco: o passo unit aponta DATABASE_URL para um endpoint morto (integração se pula, ~84%);
 # o passo de integração aponta para os service containers (integração roda).
+#
+# Supply chain (harden-cicd-supply-chain): actions fixadas por SHA imutável + release em comentário;
+# Dependabot mantém os pins frescos. O nome do job (`test`) é um required status check da branch
+# protection — renomeá-lo exige atualizar .github/branch-protection.sh em conjunto.
 name: Test
 
 on:
@@ -16,6 +20,11 @@ on:
 
 permissions:
   contents: read
+
+# Um push mais novo no mesmo ref cancela o run em voo (ver build.yml).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -48,15 +57,15 @@ jobs:
           --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
       - name: Install Poetry
-        uses: snok/install-poetry@v1
+        uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1.4.2
         with:
           virtualenvs-in-project: true
 
@@ -90,7 +99,7 @@ jobs:
       # Resultados enviados MESMO em falha (if: always()) para diagnóstico de runs vermelhos.
       - name: Upload test/coverage results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-results
           path: |

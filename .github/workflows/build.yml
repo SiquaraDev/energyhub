@@ -1,6 +1,12 @@
 # Build — compila o pacote, roda a suíte de testes e reporta cobertura (Fase 17 · CI).
 # Roda em push para main/master/develop e em PR para main/master. Opera no projeto monólito
 # (`energyhub/`), onde vivem o pyproject/poetry.lock e a suíte de testes (Fase 13).
+#
+# Supply chain (harden-cicd-supply-chain): toda action é fixada por SHA de 40 chars (imutável) com
+# a release em comentário — uma tag como `@v7` é MUTÁVEL e um upstream comprometido pode reapontá-la
+# para código malicioso rodando com o token do workflow. O Dependabot (.github/dependabot.yml)
+# mantém os pins frescos via PRs revisáveis. O nome do job (`build`) é um required status check da
+# branch protection — renomeá-lo exige atualizar .github/branch-protection.sh em conjunto.
 name: Build
 
 on:
@@ -12,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# Um push mais novo no mesmo ref cancela o run em voo — evita corrida entre revisões e desperdício
+# de minutos; o resultado que importa é sempre o do commit mais recente.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,7 +32,7 @@ jobs:
         working-directory: energyhub
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Guarda de segurança — falha cedo (antes de instalar) se algum Secret do k8s estiver em texto
       # puro ou se um valor placeholder (change-me-in-production / energyhub123 / admin/admin) aparecer
@@ -31,19 +43,19 @@ jobs:
         run: bash scripts/check_no_plaintext_secrets.sh
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
       # snok/install-poetry DEPOIS do setup-python (ordem do README oficial quando NÃO se usa o
       # cache 'poetry' do setup-python) — evita "poetry: command not found" na resolução de cache.
       - name: Install Poetry
-        uses: snok/install-poetry@v1
+        uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1.4.2
         with:
           virtualenvs-in-project: true
 
       - name: Cache virtualenv
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: energyhub/.venv
           key: venv-${{ runner.os }}-py3.12-${{ hashFiles('energyhub/poetry.lock') }}
@@ -66,7 +78,7 @@ jobs:
       # Upload ao Codecov. token: exigido mesmo em repo público desde o codecov-action v4; sem o
       # secret CODECOV_TOKEN o upload é tentado mas NÃO derruba o build (fail_ci_if_error: false).
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: energyhub/coverage.xml

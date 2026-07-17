@@ -4,6 +4,9 @@
 # sobe um cluster kind EFÊMERO no próprio runner, carrega as imagens recém-publicadas, aplica
 # k8s/ e confere rollout + rollback — sem depender de nenhum cluster externo 24/7.
 # (O deploy num cluster REAL fica em deploy.yml, atrás do secret KUBE_CONFIG.)
+#
+# Supply chain (harden-cicd-supply-chain): actions fixadas por SHA imutável + release em comentário;
+# Dependabot mantém os pins frescos. As imagens publicadas carregam provenance + SBOM.
 name: CI/CD Pipeline
 
 on:
@@ -13,6 +16,12 @@ on:
 # Escopo mínimo por padrão; cada job eleva só o que precisa (packages: write no push, read no deploy).
 permissions:
   contents: read
+
+# Um push mais novo no mesmo ref cancela o run em voo. Crítico AQUI: esta esteira faz DEPLOY — sem
+# o guard, dois commits em sequência disputariam o mesmo cluster e o mais antigo poderia vencer.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ---- Estágio 1: build + testes (gate de qualidade) --------------------------------------------
@@ -45,11 +54,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
-      - uses: snok/install-poetry@v1
+      - uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1.4.2
         with:
           virtualenvs-in-project: true
       - name: Install dependencies
@@ -85,29 +94,32 @@ jobs:
       matrix:
         service: [auth-service, client-service, contract-service, financial-service, audit-service]
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         with:
           version: latest
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/energyhub-${{ matrix.service }}
           tags: |
             type=raw,value=latest
             type=raw,value=${{ github.sha }}
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./services/${{ matrix.service }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Attestations SLSA (ver docker.yml): aqui o push é incondicional, então são sempre geradas.
+          provenance: true
+          sbom: true
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -119,7 +131,7 @@ jobs:
       contents: read
       packages: read   # só puxa as imagens do GHCR (não publica)
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Lowercase owner
         run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
@@ -131,11 +143,11 @@ jobs:
       # cluster_name EXPLÍCITO: o default do helm/kind-action é `chart-testing`, e `kind load`
       # assume `--name kind` → sem isto as imagens caem no cluster errado (ImagePullBackOff).
       - name: Create kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
         with:
           cluster_name: energyhub
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -154,8 +166,25 @@ jobs:
           done
 
       # Namespace primeiro: o dry-run server-side dos recursos namespaced exige o namespace existindo.
-      - name: Create namespace
-        run: kubectl apply -f k8s/namespace.yaml
+      # O ServiceAccount vem junto e ANTES dos Deployments de propósito: `kubectl apply -f k8s/`
+      # aplica em ordem ALFABÉTICA, então serviceaccount.yaml chegaria depois de audit/auth/... e os
+      # ReplicaSets ficariam em "error looking up service account" até ele existir. Eles se
+      # recuperariam sozinhos, mas aplicar antes evita o ruído e a corrida.
+      - name: Create namespace and ServiceAccount
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/serviceaccount.yaml
+
+      # Pull secret do GHCR a partir do GITHUB_TOKEN EFÊMERO deste run (expira no fim dele) — não
+      # um PAT de longa duração. `packages: read` no job já basta: ele só puxa, nunca publica.
+      # Num cluster real este Secret vem de `k8s/secrets/create-ghcr-pull-secret.sh`.
+      - name: Create GHCR pull secret (CI only)
+        run: |
+          kubectl -n energyhub create secret docker-registry ghcr-pull-secret \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       # `energyhub-secret` NAO e mais versionado (harden-security-credentials): num cluster real ele
       # e materializado por um SealedSecret/ExternalSecret (ver k8s/secrets/). No kind EFEMERO do CI
@@ -194,6 +223,48 @@ jobs:
             deployment/postgres deployment/redis deployment/rabbitmq deployment/consul
           kubectl -n energyhub wait --for=condition=available --timeout=300s \
             deployment/auth-service deployment/client-service
+
+      # Prova que o pull secret FUNCIONA — e não que ele apenas existe.
+      #
+      # Cuidado com o falso-positivo: os Deployments normais NÃO exercitam o pull. As imagens são
+      # pré-carregadas no kind com `kind load` sob outro nome (energyhub-<svc>-service:latest) e com
+      # imagePullPolicy IfNotPresent, então o kubelet nunca fala com o GHCR — o deploy ficaria verde
+      # mesmo com o pull secret quebrado, e num cluster real tudo cairia em ImagePullBackOff.
+      #
+      # Este probe fecha esse buraco: referencia a imagem pelo nome REMOTO E PRIVADO
+      # (ghcr.io/<owner>/...:<sha>, que NÃO está no nó) com imagePullPolicy Always, forçando um pull
+      # autenticado real. A imagem é privada (GET anônimo no manifest devolve 401), logo só sobe se
+      # o SA entregou a credencial. `command: sleep` sobrepõe o uvicorn: aqui se testa o PULL, não
+      # o app — sem isso o container morreria por falta de banco e confundiria o diagnóstico.
+      - name: "Verify GHCR pull secret pulls a PRIVATE image"
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ghcr-pull-probe
+            namespace: energyhub
+          spec:
+            serviceAccountName: energyhub-sa
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: ghcr.io/${OWNER}/energyhub-auth-service:${GITHUB_SHA}
+                imagePullPolicy: Always
+                # `sleep` bem MAIOR que o timeout do wait abaixo, de proposito: com um sleep curto o
+                # container poderia terminar antes de o wait observar Ready — o pod iria a Succeeded
+                # (Ready=False para sempre) e o wait travaria ate o timeout, reportando FALHA numa
+                # verificacao que na verdade PASSOU. O pod e apagado logo apos o wait resolver.
+                command: ["sleep", "600"]
+          EOF
+          if kubectl -n energyhub wait --for=condition=Ready pod/ghcr-pull-probe --timeout=180s; then
+            echo "OK: imagem PRIVADA do GHCR puxada via ghcr-pull-secret (sem ImagePullBackOff)."
+            kubectl -n energyhub delete pod ghcr-pull-probe --wait=false || true
+          else
+            echo "::error::pull da imagem privada FALHOU — ghcr-pull-secret/energyhub-sa nao autenticaram."
+            kubectl -n energyhub describe pod ghcr-pull-probe | tail -25
+            exit 1
+          fi
 
       # Drill de rollback: injeta uma imagem quebrada, confirma que o rollout NÃO conclui, reverte
       # com `rollout undo` e confirma a recuperação — prova o mecanismo de auto-rollback do CD.

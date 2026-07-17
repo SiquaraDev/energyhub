@@ -31,6 +31,10 @@ spec:
       # AUTH_SERVICE_PORT=tcp://10.x:8001) — elas colidem com os campos `*_service_port` do
       # Settings (pydantic) e quebram o parse int. O app usa DNS/Consul + os defaults corretos.
       enableServiceLinks: false
+      # Traz o imagePullSecrets do GHCR via k8s/serviceaccount.yaml. Sem isto, num cluster
+      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-auth-service
+      # cai em ImagePullBackOff. No kind do CI a imagem e pre-carregada, entao nao ha pull.
+      serviceAccountName: energyhub-sa
       containers:
         - name: auth-service
           image: energyhub-auth-service:latest

@@ -28,6 +28,19 @@ The constraints are inherited from earlier phases: the workflows operate in `ene
 - **Decision:** Rewrite every `uses: <action>@<tag>` to `uses: <action>@<40-char-sha> # <tag>`, resolving each SHA from the exact commit the current tag points to at pinning time.
 - **Rationale:** The SHA is immutable — an upstream cannot repoint it — which closes the tag-hijack vector while the trailing comment preserves human readability. This is GitHub's own hardening guidance for third-party actions.
 - **Alternative considered:** Trusting major-version tags (`@v7`) — rejected, because tags are mutable and the whole point is to remove that trust. A vendored/forked copy of each action — rejected as high-maintenance overkill for 13 well-known actions.
+- **AMENDED DURING APPLY — pin to the LATEST release, not to the current tag.** Pinning revealed a
+  fact this decision was written without: **5 of the 13 actions were stuck on the deprecated Node 20
+  runtime** (`actions/cache@v4`, `actions/upload-artifact@v4`, `docker/metadata-action@v5`,
+  `Azure/k8s-set-context@v4`, `slackapi/slack-github-action@v2`), each with a Node 24 major already
+  available; `codecov/codecov-action@v5` was two majors behind. The runner was force-migrating them
+  to Node 24 and emitting a deprecation warning — a shim that will eventually be removed, breaking
+  all five workflows at once. Pinning "the current tag" would have **frozen that debt at pin time**,
+  making the pin actively harmful rather than merely stale, and left Dependabot to undo on day one
+  what this change had just done. So each action was pinned to the SHA of its **latest release**
+  instead, after verifying via the GitHub API that every input in use survives the bump (`method`,
+  `kubeconfig`, `token`, `files`, `fail_ci_if_error`, `webhook`, `webhook-type`, `payload`, …).
+  Result: 13/13 on node24 or composite — **zero Node 20**. The stale-pin risk below is unchanged;
+  it just now starts from a current baseline. Approved by the user before implementation.
 
 **Adopt Dependabot for the `github-actions` ecosystem:**
 - **Decision:** Add `.github/dependabot.yml` with a `github-actions` entry so SHA pins get reviewable bump PRs on a schedule.
@@ -69,9 +82,54 @@ The constraints are inherited from earlier phases: the workflows operate in `ene
 6. Verify end to end: a PR to `master` is blocked without review/passing checks; a real cluster (or a private-image `kind` run without pre-login) pulls the images via the secret.
 7. Rollback of the change itself: pins/concurrency/permissions/provenance are additive edits reversible by reverting the workflow commits; the pull secret and Dependabot config are deletable; branch protection is removable via the same `gh api` surface — none affect the running cluster's workloads.
 
+## Findings from the apply (verified against the live repo/registry, not assumed)
+
+- **Required check names are `build` and `test`** — read off the real check-runs API, not inferred.
+  `docker.yml` also has a job named `build`, but being a matrix it emits `build (auth-service)`, … so
+  the bare `build` is unambiguous. The checks are pinned to **app 15368** (GitHub Actions) so no other
+  integration can satisfy the requirement with a same-named check.
+- **`deploy` is a colliding check name** — `deploy.yml` and `ci-cd.yml` each publish a check-run
+  called `deploy`. Independent of the registry-availability argument, requiring that name would be
+  ambiguous. The spec's restriction to `build`/`test` is therefore also the technically correct one.
+- **The `main` branch does not exist** in this repository (only `master`). The spec asks for rules on
+  both; protecting a nonexistent branch returns 404, so the script skips it with an explicit notice
+  rather than failing. The rule becomes real the moment `main` is created.
+- **The GHCR packages really are private** — an anonymous manifest `GET` returns `401`. The pull
+  secret is load-bearing, not ceremonial.
+- **`kind load` masks the pull path.** The CI cluster preloads images under a *different* local name
+  with `imagePullPolicy: IfNotPresent`, so the kubelet never contacts GHCR — the deploy would stay
+  green with a completely broken pull secret. A dedicated probe (private image by its **remote** name
+  + `imagePullPolicy: Always`) was added to close that false-positive; without it, tasks 4.4/6.4
+  would have been unverifiable in CI.
+- **The repository is public.** This weakens (but does not void) the "public packages are
+  world-readable" argument — the source is already readable; the image only adds the built dependency
+  tree. The documented reason to keep packages private is therefore *exercising the authenticated
+  pull path*, not secrecy.
+
 ## Open Questions
 
-- Should the GHCR packages ultimately be published **public** (dropping the pull secret entirely) or stay **private** with the pull secret as the standing default for all environments?
-- Should the pull secret be materialized at deploy time from the workflow `GITHUB_TOKEN` (short-lived, per-run) or provisioned once from a longer-lived `read:packages` PAT stored as a cluster secret?
-- Should a later iteration add keyless signing (cosign/Sigstore) and verify attestations at admission (e.g. via a policy controller), building on the provenance/SBOM introduced here?
-- Should required status checks also include the `docker`/image-build workflow, or stay limited to `build` and `test` to avoid gating merges on registry availability?
+- ~~Should the GHCR packages ultimately be published **public** (dropping the pull secret entirely) or
+  stay **private** with the pull secret as the standing default for all environments?~~
+  **RESOLVED — stay private.** Not for secrecy (the repo is public; the source is already readable),
+  but because a public package leaves the pull secret, the ServiceAccount and the CD preflights
+  permanently untested. The day a real authenticated registry is needed (customer image, internal
+  mirror, ECR/Artifact Registry migration), that path would be exercised for the first time in
+  production. The public alternative is documented per-environment in `k8s/secrets/README.md`.
+- ~~Should the pull secret be materialized at deploy time from the workflow `GITHUB_TOKEN`
+  (short-lived, per-run) or provisioned once from a longer-lived `read:packages` PAT?~~
+  **RESOLVED — both, split by environment.** The CI's ephemeral `kind` builds it from the run's
+  `GITHUB_TOKEN` (expires with the run; nothing to rotate, nothing to leak). A real cluster is
+  provisioned once from a `read:packages`-only PAT via `create-ghcr-pull-secret.sh`, because the
+  workflow token dies with the run and a long-lived cluster must survive between deploys.
+- ~~Should required status checks also include the `docker`/image-build workflow, or stay limited to
+  `build` and `test`?~~ **RESOLVED — `build` and `test` only**, and the reason is stronger than the
+  registry-availability argument that motivated the question: `deploy` is a **duplicated check name**
+  across two workflows, so requiring it is ambiguous at the API level.
+- **STILL OPEN** — Should a later iteration add keyless signing (cosign/Sigstore) and verify
+  attestations at admission (e.g. via a policy controller), building on the provenance/SBOM
+  introduced here? Nothing in this change consumes the attestations it now produces: they are
+  published and verifiable by hand, but no gate rejects an unsigned or unattested image. That gap is
+  the natural next increment.
+- **NEW** — Should `dependabot_security_updates` (currently `disabled` on the repo) be enabled? It is
+  a distinct feature from the version updates configured here and is a repository toggle, so it was
+  left outside this change's scope.

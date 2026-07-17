@@ -21,6 +21,10 @@ spec:
       # Ver auth-service-deployment.yaml: evita colisão das env vars de Service (docker-links)
       # do k8s com os campos `*_service_port` do Settings (pydantic).
       enableServiceLinks: false
+      # Traz o imagePullSecrets do GHCR via k8s/serviceaccount.yaml. Sem isto, num cluster
+      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-audit-service
+      # cai em ImagePullBackOff. No kind do CI a imagem e pre-carregada, entao nao ha pull.
+      serviceAccountName: energyhub-sa
       containers:
         - name: audit-service
           image: energyhub-audit-service:latest

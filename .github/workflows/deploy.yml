@@ -4,6 +4,9 @@
 # Sem KUBE_CONFIG o job de deploy é PULADO (verde), não falha — assim o repo fica pronto para
 # plugar um cluster (EKS/GKE/Oracle/etc.) quando existir, sem quebrar o CI enquanto não há um.
 # A validação de deploy GRÁTIS e efêmera (kind no runner) fica no pipeline combinado ci-cd.yml.
+#
+# Supply chain (harden-cicd-supply-chain): actions fixadas por SHA imutável + release em comentário;
+# Dependabot mantém os pins frescos.
 name: Deploy
 
 on:
@@ -12,6 +15,12 @@ on:
 
 permissions:
   contents: read
+
+# Um push mais novo no mesmo ref cancela o run em voo. Crítico num workflow de DEPLOY: sem o guard,
+# dois commits em sequência disputariam o cluster REAL e o rollout do mais antigo poderia vencer.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Secrets não podem ser usados em `if:`; um job-gate mapeia o secret para env e emite um output
@@ -44,10 +53,10 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Configure kubectl from secret
-        uses: azure/k8s-set-context@v4
+        uses: Azure/k8s-set-context@8698eba2499e9012f0d5085f8798077cce4bc526 # v5.0.1
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBE_CONFIG }}
@@ -60,8 +69,12 @@ jobs:
       # Namespace PRIMEIRO: `kubectl apply -f k8s/` aplica em ordem alfabética, então recursos
       # namespaced (audit-*, auth-*, ...) chegariam ANTES de namespace.yaml num cluster novo e
       # falhariam com "namespace not found". Aplicar o namespace antes garante a ordem.
-      - name: Apply namespace
-        run: kubectl apply -f k8s/namespace.yaml
+      # O ServiceAccount entra aqui pelo MESMO motivo: alfabeticamente serviceaccount.yaml vem
+      # depois dos Deployments, que ficariam em "error looking up service account" até ele existir.
+      - name: Apply namespace and ServiceAccount
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/serviceaccount.yaml
 
       # `energyhub-secret` NAO e versionado (harden-security-credentials): num cluster real ele vem
       # de um SealedSecret/ExternalSecret (ver k8s/secrets/), aplicado FORA desta esteira. Sem ele os
@@ -76,6 +89,21 @@ jobs:
           fi
           echo "energyhub-secret presente"
 
+      # Mesma lógica do preflight acima, para a credencial de PULL: `ghcr-pull-secret` também não é
+      # versionado (contém um token do GHCR) e é provisionado FORA desta esteira por
+      # k8s/secrets/create-ghcr-pull-secret.sh. Sem ele, as imagens privadas do GHCR não descem e
+      # cada serviço cai em ImagePullBackOff — o `rollout status` só falharia lá na frente, por
+      # timeout de 300s x 6 deployments. Este preflight troca essa espera cega por um erro imediato.
+      - name: "Preflight: ghcr-pull-secret must exist"
+        run: |
+          if ! kubectl -n energyhub get secret ghcr-pull-secret >/dev/null 2>&1; then
+            echo "::error::Secret 'ghcr-pull-secret' ausente no namespace energyhub."
+            echo "Crie-o com k8s/secrets/create-ghcr-pull-secret.sh — veja k8s/secrets/README.md."
+            echo "(Alternativa: tornar os pacotes GHCR publicos e remover imagePullSecrets do SA.)"
+            exit 1
+          fi
+          echo "ghcr-pull-secret presente"
+
       # `k8s/cert-manager/` e `k8s/secrets/` ficam FORA da varredura (`-f k8s/` e nao-recursivo):
       # dependem de controllers (cert-manager / sealed-secrets) instalados como pre-requisito.
       - name: Apply manifests
@@ -85,7 +113,7 @@ jobs:
       # Espera-as no GHCR antes de fixá-las, senão o `set image` aponta para uma tag inexistente
       # (ImagePullBackOff → rollout falha → rollback). Precisa de login (imagens privadas por padrão).
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -136,7 +164,7 @@ jobs:
       # Notifica no Slack só em falha e só se o webhook estiver configurado (no-op sem o secret).
       - name: Notify Slack on failure
         if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook

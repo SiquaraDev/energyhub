@@ -24,6 +24,13 @@ consomem.
 | `seal-secrets.sh` | ✅ sim | Roda `kubeseal` sobre o `.local.yaml` e gera o `energyhub-sealedsecret.yaml`. |
 | `energyhub-externalsecret.example.yaml` | ✅ sim | Alternativa: `SecretStore` (Vault) + `ExternalSecret` que materializa `energyhub-secret`. |
 | `sealed-secrets-controller.md` | ✅ sim | Versão fixada e comando de instalação do controlador Sealed Secrets. |
+| `create-ghcr-pull-secret.sh` | ✅ sim | Cria o `ghcr-pull-secret` (credencial de **pull** das imagens privadas do GHCR). Ver §🐳. |
+| `ghcr-pull-sealedsecret.yaml` | ✅ sim *(se gerado)* | Saída de `create-ghcr-pull-secret.sh --seal` — pull secret cifrado, para GitOps. |
+
+> **Dois segredos, papéis distintos.** `energyhub-secret` é o que a aplicação **consome em runtime**
+> (JWT, senhas, URLs). `ghcr-pull-secret` é o que o **kubelet** usa **antes** do container existir,
+> para baixar a imagem. Um serviço com o `energyhub-secret` perfeito e sem o `ghcr-pull-secret`
+> nunca chega a rodar — trava em `ImagePullBackOff`.
 
 ---
 
@@ -110,11 +117,70 @@ kubectl get secret energyhub-secret -n energyhub   # criado pelo operador
 
 ---
 
+## 🐳 `ghcr-pull-secret` — puxar as imagens privadas do GHCR
+
+As 5 imagens são publicadas em `ghcr.io/siquaradev/energyhub-<serviço>-service` e **nascem
+privadas** — um `GET` anônimo no manifest devolve `401`. Um cluster real não tem `docker login`
+nenhum, então sem credencial o kubelet falha o pull e **todo serviço fica em `ImagePullBackOff`**.
+
+O fluxo tem duas peças:
+
+| Peça | O quê |
+| :--- | :---- |
+| `ghcr-pull-secret` | `kubernetes.io/dockerconfigjson` com o token do GHCR. **Não versionado** (embute o token em claro). |
+| [`k8s/serviceaccount.yaml`](../serviceaccount.yaml) | SA `energyhub-sa` que referencia o Secret. Os 5 Deployments apontam para ele via `serviceAccountName` — um único ponto de verdade. |
+
+```bash
+# Token: PAT CLÁSSICO com escopo read:packages e NADA MAIS. Se o cluster for comprometido, um
+# token só-leitura de imagens é o menor estrago possível. Nunca use write:packages ou repo aqui.
+export GHCR_USERNAME=SiquaraDev
+export GHCR_TOKEN=ghp_xxx
+
+bash k8s/secrets/create-ghcr-pull-secret.sh          # cria/atualiza direto no cluster (idempotente)
+bash k8s/secrets/create-ghcr-pull-secret.sh --seal   # OU: gera um SealedSecret cifrado p/ GitOps
+
+# Conferir o wiring (deve listar ghcr-pull-secret):
+kubectl -n energyhub get serviceaccount energyhub-sa -o jsonpath='{.imagePullSecrets}'
+```
+
+> **Rotação.** Rodar o script de novo atualiza o Secret, mas os pods **já rodando** seguem com a
+> imagem que já baixaram. Para revalidar o pull:
+> `kubectl -n energyhub rollout restart deployment -l app.kubernetes.io/part-of=energyhub`.
+
+### 🔀 Alternativa: tornar os pacotes públicos
+
+Dá para dispensar o pull secret **inteiro** publicando as imagens como públicas
+(GitHub → Packages → *Package settings* → *Change visibility* → Public), e então removendo o bloco
+`imagePullSecrets` de `k8s/serviceaccount.yaml`. Sem credencial, sem rotação, sem preflight.
+
+**O trade-off, honestamente:**
+
+| | Pull secret (privado) — **padrão** | Pacote público |
+| :-- | :-- | :-- |
+| Quem baixa a imagem | só quem tem o token | qualquer pessoa na internet |
+| Operação | criar + rotacionar o token | zero |
+| Preflight/probe do CD | exercita o caminho autenticado real | não exercita nada |
+
+> **Sem exagero:** este repositório é **público**, então o código-fonte já é legível por qualquer um
+> — publicar as imagens **não** vazaria "o código". O que a imagem acrescenta é o artefato
+> **construído**: a árvore exata de dependências e suas versões (um mapa de CVEs pronto para quem
+> for procurar), além de qualquer coisa embutida em build. É um delta modesto, não uma catástrofe.
+
+O motivo real de manter **privado** como padrão não é sigilo — é que ele **força o caminho de
+produção a ser exercitado**. Com o pacote público, o pull secret, o SA e os preflights nunca são
+testados; no dia em que um serviço realmente precisar de registry autenticado (imagem de cliente,
+mirror interno, migração para ECR/Artifact Registry), a plataforma descobre em produção que essa
+trilha nunca funcionou. Vá de **público** num demo descartável em que essa trilha não interessa.
+
+---
+
 ## 🚫 Regras invioláveis
 
 - **Nunca** commitar `energyhub-secret.local.yaml` (nem qualquer `*.local.yaml`) — é o `Secret` em
   claro. O `.gitignore` da raiz já o bloqueia; confira com `git status` antes de commitar.
 - **Nunca** recriar o antigo `k8s/secret.yaml` com valores em claro.
+- **Nunca** commitar um `dockerconfigjson` preenchido: `base64` **não é cifra** e o token do GHCR
+  sai legível. Use `create-ghcr-pull-secret.sh` (o token só transita pelo ambiente) ou `--seal`.
 - Ao adicionar/renomear uma chave, atualize **os três** pontos em conjunto: este README, o
   template `*.example.yaml`, o `ExternalSecret` **e** os `secretKeyRef` dos Deployments.
 - Rotacionar `SECRET_KEY`, `INTERNAL_API_KEY` e as senhas periodicamente e após qualquer exposição.
