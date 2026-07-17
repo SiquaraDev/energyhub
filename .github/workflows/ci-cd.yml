@@ -165,15 +165,11 @@ jobs:
             kind load docker-image "$dst" --name energyhub
           done
 
-      # Namespace primeiro: o dry-run server-side dos recursos namespaced exige o namespace existindo.
-      # O ServiceAccount vem junto e ANTES dos Deployments de propósito: `kubectl apply -f k8s/`
-      # aplica em ordem ALFABÉTICA, então serviceaccount.yaml chegaria depois de audit/auth/... e os
-      # ReplicaSets ficariam em "error looking up service account" até ele existir. Eles se
-      # recuperariam sozinhos, mas aplicar antes evita o ruído e a corrida.
-      - name: Create namespace and ServiceAccount
-        run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/serviceaccount.yaml
+      # Namespace primeiro: os secrets abaixo e o dry-run server-side exigem o namespace existindo.
+      # O ServiceAccount + o restante vêm depois via `apply -k` (o kubectl ordena ServiceAccount
+      # antes de Deployment num mesmo apply, então os pods já o encontram). Caminho agora sob base/.
+      - name: Create namespace
+        run: kubectl apply -f k8s/base/namespace.yaml
 
       # Pull secret do GHCR a partir do GITHUB_TOKEN EFÊMERO deste run (expira no fim dele) — não
       # um PAT de longa duração. `packages: read` no job já basta: ele só puxa, nunca publica.
@@ -199,24 +195,19 @@ jobs:
           DASH_HASH="$(openssl passwd -apr1 "$(openssl rand -hex 12)")"
           kubectl -n energyhub create secret generic energyhub-secret             --from-literal=SECRET_KEY="$(openssl rand -hex 32)"             --from-literal=INTERNAL_API_KEY="$(openssl rand -hex 32)"             --from-literal=TRAEFIK_DASHBOARD_USERS="energyhub:${DASH_HASH}"             --from-literal=POSTGRES_PASSWORD="${PG_PW}"             --from-literal=RABBITMQ_PASSWORD="${MQ_PW}"             --from-literal=AUTH_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/authdb"             --from-literal=CLIENT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/clientdb"             --from-literal=CONTRACT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/contractdb"             --from-literal=FINANCIAL_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/financialdb"             --from-literal=AUDIT_DATABASE_URL="postgresql+asyncpg://energyhub:${PG_PW}@postgres-service:5432/auditdb"             --from-literal=RABBITMQ_URL="amqp://energyhub:${MQ_PW}@rabbitmq-service:5672/"
 
-      # Validação server-side de TODOS os manifestos contra a API real do cluster (schema + admission).
-      # `k8s/cert-manager/` e `k8s/secrets/` ficam FORA da varredura (`-f k8s/` e nao-recursivo): ambos
-      # dependem de controllers (cert-manager / sealed-secrets) que o kind do CI nao instala.
-      - name: Server-side dry-run of all manifests
-        run: kubectl apply --dry-run=server -f k8s/
+      # Deploy via Kustomize (k8s-production-robustness): renderiza o overlay DEV e aplica com `-k`.
+      # O overlay dev rende as imagens LOCAIS (energyhub-<svc>-service:latest, exatamente o que o
+      # `kind load` carregou) e já fixa réplicas=1 (RAM do runner) — por isso o antigo passo manual
+      # de `scale ... --replicas=1` sumiu: a réplica única agora é propriedade do overlay.
+      # `cert-manager/` e `secrets/` continuam FORA (não estão na base; dependem de controllers/segredos).
+      - name: Server-side dry-run of the dev overlay
+        run: kubectl apply --dry-run=server -k k8s/overlays/dev
 
-      - name: Apply manifests
-        run: kubectl apply -f k8s/
-
-      # Runner tem RAM limitada (8–16GB): réplicas dos serviços em 1 para caber (backends já são 1).
-      - name: Scale services to 1 replica (runner RAM)
-        run: |
-          for s in auth client contract financial audit; do
-            kubectl -n energyhub scale deployment/${s}-service --replicas=1
-          done
+      - name: Apply dev overlay
+        run: kubectl apply -k k8s/overlays/dev
 
       # Gate num subconjunto CORE e confiável (Postgres/Redis/RabbitMQ/Consul + auth/client). Não
-      # bloqueia em Kafka/Zookeeper (pesados/lentos num runner) — eles são aplicados, não aguardados.
+      # bloqueia em Kafka (StatefulSet KRaft, pesado/lento num runner) — ele é aplicado, não aguardado.
       - name: Wait for core stack to be ready
         run: |
           kubectl -n energyhub wait --for=condition=available --timeout=240s \

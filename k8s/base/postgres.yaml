@@ -7,7 +7,12 @@
 # initdb: o ConfigMap `postgres-initdb` é montado em /docker-entrypoint-initdb.d e cria os 5
 # bancos (authdb/clientdb/contractdb/financialdb/auditdb) no PRIMEIRO boot com volume vazio.
 # O seed do admin acontece DEPOIS (Job pós-deploy), pois as tabelas só existem após o
-# `metadata.create_all` de cada serviço. Dev usa emptyDir (efêmero) — troque por PVC p/ persistir.
+# `metadata.create_all` de cada serviço.
+#
+# Persistência (k8s-production-robustness): o data dir agora vem de um PersistentVolumeClaim
+# (postgres-data), não mais de `emptyDir` — o banco sobrevive a restart/reschedule do pod. PGDATA
+# aponta para o subdiretório /var/lib/postgresql/data/pgdata (o initdb do postgres exige um subdir
+# não-raiz quando o mount tem lost+found), preservado do design da Fase 16.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -95,7 +100,8 @@ spec:
           configMap:
             name: postgres-initdb
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: postgres-data
 ---
 apiVersion: v1
 kind: Service
@@ -113,3 +119,20 @@ spec:
     - name: postgres
       port: 5432
       targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: energyhub
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: energyhub
+spec:
+  # Desacopla o dado do ciclo de vida do pod: um crash/upgrade/reschedule nao apaga mais o volume.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+  # storageClassName omitido -> classe DEFAULT do cluster (dev/kind/minikube). O overlay prod define
+  # uma classe explicita (data-persistence exige classe explicita em prod).

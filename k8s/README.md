@@ -3,11 +3,19 @@
 Árvore declarativa de manifestos que descreve **toda a plataforma EnergyHub** como estado desejado
 de um cluster Kubernetes: um `Namespace` `energyhub`, um `Deployment`/`Service` por microsserviço
 (auth, client, contract, financial, audit), os componentes de plataforma (Consul, Traefik) e os
-backends stateful (PostgreSQL, Redis, RabbitMQ, Kafka + Zookeeper), além de `ConfigMap`s/`Secret`,
+backends stateful (PostgreSQL, Redis, RabbitMQ e **Kafka em modo KRaft**), além de `ConfigMap`s/`Secret`,
 `Ingress` e `HorizontalPodAutoscaler`s.
 
 > Consome as **imagens da Fase 14** e as **fronteiras de serviço da Fase 15**. Não há mudança de
 > código de aplicação — apenas a camada de orquestração.
+
+> **📦 Estrutura Kustomize (k8s-production-robustness).** Os manifestos de workload vivem sob
+> [`k8s/base/`](base/) e são aplicados por **overlays**: [`k8s/overlays/dev/`](overlays/dev/)
+> (imagens locais, réplica única, StorageClass default) e [`k8s/overlays/prod/`](overlays/prod/)
+> (imagens `ghcr.io/<owner>/…@<sha>`, StorageClass explícita, HPAs maiores). Aplica-se com
+> `kubectl apply -k k8s/overlays/<env>` — **não** mais `kubectl apply -f k8s/`. Fora da base, porque
+> dependem de controllers/segredos aplicados à parte: [`cert-manager/`](cert-manager/) e
+> [`secrets/`](secrets/).
 
 ---
 
@@ -19,7 +27,7 @@ backends stateful (PostgreSQL, Redis, RabbitMQ, Kafka + Zookeeper), além de `Co
 | **Gateway** | `traefik` (`Deployment`) + `traefik-service` (**LoadBalancer**) + `traefik-config` | `traefik-service:80` (web) · `:8080` (dashboard) |
 | **Discovery** | `consul` (`Deployment`) + `consul-service` (ClusterIP) | `consul-service:8500` |
 | **Borda** | `energyhub-ingress` (`Ingress`, classe `nginx`) → `traefik-service:80` | host `energyhub.local` |
-| **Backends stateful** | `postgres` (+ initdb), `redis`, `rabbitmq`, `kafka`, `zookeeper` | `postgres-service:5432`, `redis-service:6379`, `rabbitmq-service:5672`, `kafka-service:9092` |
+| **Backends stateful** | `postgres` (+ initdb), `redis`, `rabbitmq` — todos **PVC-backed**; `kafka` = **StatefulSet KRaft** (+ `kafka-headless`) | `postgres-service:5432`, `redis-service:6379`, `rabbitmq-service:5672`, `kafka-service:9092` |
 | **Config** | `energyhub-config` (compartilhado) + `<svc>-config` (por serviço) + `energyhub-secret` | — |
 
 ### Fluxo de tráfego
@@ -54,12 +62,18 @@ daemon no Windows) — apenas o `consulCatalog`.
   cluster** a partir de um **SealedSecret** cifrado (padrão) ou de um **ExternalSecret** (Vault) —
   ver [`k8s/secrets/`](secrets/README.md). Nunca commitar o `Secret` em claro.
 
-### Backends stateful in-cluster (decisão da Fase 16)
+### Backends stateful in-cluster (Fase 16 + k8s-production-robustness)
 
-Resolvendo a *Open Question* #3 do design: no cluster **local/dev** os data stores rodam **dentro
-do cluster**, endereçados por DNS (`postgres-service`, `redis-service`, …), com `emptyDir`
-(efêmero). Em **produção**, troque para managed stores externos ajustando **apenas as URLs no
-Secret** — nenhum outro manifesto muda. Para persistir em dev, troque `emptyDir` por `PersistentVolumeClaim`.
+No cluster **local/dev** os data stores rodam **dentro do cluster**, endereçados por DNS
+(`postgres-service`, `redis-service`, …). Desde o endurecimento, o armazenamento é **durável**: cada
+backend monta um **`PersistentVolumeClaim`** (Postgres/Redis/RabbitMQ) ou um `volumeClaimTemplate`
+(Kafka), não mais `emptyDir` — o dado **sobrevive a restart/reschedule** do pod. O `StorageClass`
+fica implícito (default do cluster) em `dev` e **explícito** no overlay `prod`. Em **produção**,
+alternativamente, troque para managed stores externos ajustando **apenas as URLs no Secret**.
+
+O **Kafka** roda em **modo KRaft** como `StatefulSet` (sem Zookeeper), com identidade estável via o
+Service headless `kafka-headless` e log persistente no PVC. Os clientes seguem usando
+`kafka-service:9092`, inalterado.
 
 ---
 
@@ -98,8 +112,8 @@ done
 ### 3) Resolver o `energyhub-secret` (sem plaintext no git)
 
 O `Secret` sensível não vive mais em `k8s/secret.yaml`. Antes de aplicar a plataforma, resolva-o
-**dentro do cluster** por um dos fluxos de [`k8s/secrets/`](secrets/README.md) — o `kubectl apply -f
-k8s/` **não** recorre no subdiretório `secrets/`, então este passo é explícito:
+**dentro do cluster** por um dos fluxos de [`k8s/secrets/`](secrets/README.md) — `secrets/` fica
+**fora da base Kustomize** (o `apply -k` não o inclui), então este passo é explícito:
 
 ```bash
 # Padrão — Sealed Secrets (o controlador expande o SealedSecret cifrado em energyhub-secret):
@@ -111,13 +125,21 @@ kubectl apply -f k8s/secrets/energyhub-externalsecret.example.yaml
 kubectl get secret energyhub-secret -n energyhub   # confirmar que foi criado
 ```
 
-### 4) Aplicar os manifestos
+### 4) Aplicar os manifestos (via Kustomize)
 
 ```bash
-kubectl apply -f k8s/namespace.yaml      # namespace primeiro
-kubectl apply -f k8s/                     # todo o restante (idempotente; secrets/ resolvido no passo 3)
+kubectl apply -f k8s/base/namespace.yaml  # namespace primeiro (o Secret do passo 3 exige ele)
+kubectl apply -k k8s/overlays/dev         # renderiza a base + patches de dev e aplica (idempotente)
 kubectl get pods -n energyhub -w          # aguardar todos Running/ready
+
+# Inspecionar o que SERÁ aplicado, sem aplicar (o build mostra imagens, PVCs, StatefulSet):
+kubectl kustomize k8s/overlays/dev
 ```
+
+> Em **produção** use o overlay `prod` (`kubectl apply -k k8s/overlays/prod`) — ele fixa as imagens
+> em `ghcr.io/<owner>/…` e exige uma `StorageClass` explícita (ajuste o placeholder `gp3` em
+> [`overlays/prod/kustomization.yaml`](overlays/prod/kustomization.yaml) ao seu cluster). A esteira
+> `deploy.yml` injeta o commit SHA nas imagens do `prod` antes do apply.
 
 ### 5) Seed do admin (pós-deploy)
 
@@ -172,11 +194,13 @@ kubectl describe pod -n energyhub <pod>
 ## 🧹 Teardown
 
 ```bash
-kubectl delete namespace energyhub   # remove tudo (blast radius único)
-# ou: kubectl delete -f k8s/
+kubectl delete namespace energyhub   # remove tudo (blast radius único; apaga também os PVCs)
+# ou: kubectl delete -k k8s/overlays/dev   # (o overlay aplicado; NÃO remove os PVCs por si só)
 ```
 
-Remove apenas os manifestos do cluster — não toca no código de aplicação nem em data stores externos.
+Remove os manifestos do cluster — não toca no código de aplicação nem em data stores externos.
+**Atenção:** com PVCs, `delete namespace` **apaga os volumes** (e os dados). O `delete -k` não remove
+os PVCs criados por `volumeClaimTemplates`; limpe-os à parte se quiser um teardown completo.
 
 ---
 
@@ -185,6 +209,8 @@ Remove apenas os manifestos do cluster — não toca no código de aplicação n
 - **Rotacionar** `SECRET_KEY`, `INTERNAL_API_KEY` e todas as senhas. O `Secret` já **não** é
   commitado em claro — é resolvido no cluster via **SealedSecret** (cifrado) ou **ExternalSecret**
   (Vault); ver [`k8s/secrets/`](secrets/README.md). Nunca commitar o `Secret` em texto puro.
-- Trocar os backends `emptyDir` por managed stores externos (URLs no Secret) ou `StatefulSet` + PVC.
+- Os backends já são **PVC-backed** (Postgres/Redis/RabbitMQ + Kafka em `volumeClaimTemplate`) — o
+  dado sobrevive a restart/reschedule. Em produção, alternativamente troque para managed stores
+  externos ajustando só as URLs no `Secret`, e defina uma `StorageClass` explícita no overlay `prod`.
 - Habilitar **TLS** na borda (cert-manager) e fechar o dashboard do Traefik / UI do Consul.
 - Fixar **tags de imagem** explícitas (evitar `latest` em ambientes compartilhados) — Fase 17 (CI/CD).

@@ -1,58 +1,48 @@
-# auth-service — Deployment (Fase 16). Serviço raiz de identidade (:8001, authdb).
-#
-# Config injetada em três camadas:
-#   • envFrom energyhub-config      → ENVIRONMENT, CONSUL_HOST, CONSUL_PORT (comum)
-#   • envFrom auth-service-config   → APP_NAME, APP_PORT, SERVICE_HOST, REDIS_HOST, REDIS_PORT
-#   • valueFrom energyhub-secret    → DATABASE_URL (authdb), RABBITMQ_URL, SECRET_KEY (sensível)
-# O mesmo ConfigMap ainda é MONTADO como volume em /app/config (requisito de config-as-volume).
-#
-# Self-healing: replicas:2 mantém o par; liveness reinicia pod travado; readiness só libera
-# tráfego após /health passar. imagePullPolicy IfNotPresent usa a imagem local (sem registry).
+# audit-service — Deployment (Fase 16). Trilha de auditoria (:8005, auditdb). Usa RabbitMQ.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth-service
+  name: audit-service
   namespace: energyhub
   labels:
-    app: auth-service
+    app: audit-service
     app.kubernetes.io/part-of: energyhub
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: auth-service
+      app: audit-service
   template:
     metadata:
       labels:
-        app: auth-service
+        app: audit-service
         app.kubernetes.io/part-of: energyhub
     spec:
-      # Desliga as env vars estilo docker-links que o k8s injeta para cada Service (ex.:
-      # AUTH_SERVICE_PORT=tcp://10.x:8001) — elas colidem com os campos `*_service_port` do
-      # Settings (pydantic) e quebram o parse int. O app usa DNS/Consul + os defaults corretos.
+      # Ver auth-service-deployment.yaml: evita colisão das env vars de Service (docker-links)
+      # do k8s com os campos `*_service_port` do Settings (pydantic).
       enableServiceLinks: false
-      # Traz o imagePullSecrets do GHCR via k8s/serviceaccount.yaml. Sem isto, num cluster
-      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-auth-service
+      # Traz o imagePullSecrets do GHCR via k8s/base/serviceaccount.yaml. Sem isto, num cluster
+      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-audit-service
       # cai em ImagePullBackOff. No kind do CI a imagem e pre-carregada, entao nao ha pull.
       serviceAccountName: energyhub-sa
       containers:
-        - name: auth-service
-          image: energyhub-auth-service:latest
+        - name: audit-service
+          image: energyhub-audit-service   # tag suprida pelo images: transformer do Kustomize (base=latest, prod=<sha>)
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8001
+              containerPort: 8005
           envFrom:
             - configMapRef:
                 name: energyhub-config
             - configMapRef:
-                name: auth-service-config
+                name: audit-service-config
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: energyhub-secret
-                  key: AUTH_DATABASE_URL
+                  key: AUDIT_DATABASE_URL
             - name: RABBITMQ_URL
               valueFrom:
                 secretKeyRef:
@@ -78,7 +68,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: 8005
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -86,7 +76,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: 8005
             initialDelaySeconds: 40
             periodSeconds: 15
             timeoutSeconds: 5
@@ -98,4 +88,4 @@ spec:
       volumes:
         - name: service-config
           configMap:
-            name: auth-service-config
+            name: audit-service-config

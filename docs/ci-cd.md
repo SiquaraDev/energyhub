@@ -16,7 +16,7 @@ serviço (Fase 15) e os manifestos `k8s/` (Fase 16).
 | **[build.yml](../.github/workflows/build.yml)** | push `main`/`master`/`develop`, PR `main`/`master` | `poetry build` + `pytest` (cobertura) + upload ao Codecov | CI |
 | **[test.yml](../.github/workflows/test.yml)** | push `main`/`master`/`develop`/`feature/*`, PR `main`/`master`/`develop` | Postgres + Redis (service containers) → passos **unit** e **integração** + artefato | CI |
 | **[docker.yml](../.github/workflows/docker.yml)** | push `main`/`master`/`develop`, PR `main`/`master` | matrix Buildx → 1 imagem por serviço → **push no GHCR** (`latest` + SHA) | CI |
-| **[deploy.yml](../.github/workflows/deploy.yml)** | push `main`/`master` | `kubectl apply -f k8s/` num cluster **REAL** (`KUBE_CONFIG`) + rollout + **rollback** + Slack | CD |
+| **[deploy.yml](../.github/workflows/deploy.yml)** | push `main`/`master` | `kubectl apply -k k8s/overlays/prod` (SHA injetado) num cluster **REAL** (`KUBE_CONFIG`) + rollout + **rollback** + Slack | CD |
 | **[ci-cd.yml](../.github/workflows/ci-cd.yml)** | push `main`/`master` | esteira encadeada `build-and-test → build-and-push → deploy` (deploy em **kind efêmero**) | CI+CD |
 
 > **Nota de branch.** Este repo usa `master` como default; os gatilhos incluem `main` e `master`
@@ -68,15 +68,17 @@ _registry-backed_: `cache-from/to: type=registry,ref=ghcr.io/<owner>/energyhub-<
 3. **Preflight do `energyhub-secret`:** ele **não é versionado** (`harden-security-credentials`); num
    cluster real vem do **SealedSecret/ExternalSecret** ([`k8s/secrets/`](../k8s/secrets/README.md)),
    aplicado **fora** desta esteira. O preflight falha na hora com erro explícito se ele faltar.
-4. **`kubectl apply -f k8s/`** — reconcilia o estado desejado. A varredura é **não-recursiva** de
-   propósito: `k8s/cert-manager/` e `k8s/secrets/` ficam de fora porque declaram **CRDs** que exigem
-   controllers instalados (cert-manager / sealed-secrets) — senão o apply quebra com
-   `no matches for kind "Issuer"` em qualquer cluster sem eles.
-5. **Pin por SHA:** `kubectl set image deployment/<svc>-service <svc>-service=ghcr.io/<owner>/energyhub-<svc>-service:<sha>`
-   fixa a imagem exata do commit **sem editar os manifestos** (resolve a _Open Question_ de rastreabilidade).
-6. **Gate de rollout:** `kubectl rollout status` (5 serviços + `traefik`) e `kubectl wait --for=condition=available`.
-7. **Rollback (`if: failure()`):** `kubectl rollout undo` reverte para a última revisão boa.
-8. **Slack (`if: failure()`):** notifica só se `SLACK_WEBHOOK_URL` existir.
+4. **Pin por SHA + apply via Kustomize** (`k8s-production-robustness`): um `sed` injeta o commit SHA
+   no `images:` transformer do overlay **prod**, e `kubectl apply -k k8s/overlays/prod` reconcilia o
+   estado desejado com as imagens **já fixadas no manifesto renderizado** — sem `kubectl set image`.
+   A base **não inclui** `k8s/cert-manager/` nem `k8s/secrets/` (dependem de controllers/segredos
+   aplicados à parte), então o apply não quebra com `no matches for kind "Issuer"`. `kubectl kustomize
+   k8s/overlays/prod` mostra o SHA exato antes de aplicar.
+5. **Gate de rollout:** `kubectl rollout status` (5 serviços + `traefik` + o **StatefulSet do Kafka**)
+   e `kubectl wait --for=condition=available`. É aqui, num cluster real, que a prontidão do broker
+   **KRaft** é de fato exercitada.
+6. **Rollback (`if: failure()`):** `kubectl rollout undo` reverte para a última revisão boa.
+7. **Slack (`if: failure()`):** notifica só se `SLACK_WEBHOOK_URL` existir.
 
 ### ci-cd.yml — validação de deploy GRÁTIS (kind efêmero)
 
@@ -86,13 +88,20 @@ namespace e um **`energyhub-secret` efêmero com credenciais aleatórias** (`ope
 Secret deixou de ser versionado e um kind descartável não justifica um controller de selagem; nada
 sensível entra no repositório e os valores aleatórios ainda satisfazem a **guarda de produção**
 (o ConfigMap usa `ENVIRONMENT=production`). Em seguida roda um
-**dry-run server-side de todos os manifestos**, aplica `k8s/`, reduz réplicas para 1 (RAM do runner),
+**dry-run server-side do overlay dev** (`apply --dry-run=server -k k8s/overlays/dev`), aplica o
+overlay (`apply -k k8s/overlays/dev` — que já rende **réplica única** e as **imagens locais**),
 aguarda o **subconjunto core** (Postgres/Redis/RabbitMQ/Consul + auth/client) e executa um **drill de
 rollback**: injeta uma imagem quebrada, confirma que o rollout falha e que `rollout undo` recupera.
 
-> **Por que um subconjunto?** Um runner hospedado tem 8–16 GB de RAM; a stack completa (~17 pods,
-> incluindo Kafka/Zookeeper) não cabe com folga. O drill prova o **mecanismo** de apply/rollout/rollback;
-> a stack completa já foi validada _live_ em minikube na Fase 16.
+> **Por que um subconjunto?** Um runner hospedado tem 8–16 GB de RAM; a stack completa não cabe com
+> folga. O drill prova o **mecanismo** de apply/rollout/rollback; a stack completa já foi validada
+> _live_ em minikube na Fase 16.
+>
+> **KRaft não é aguardado no CI.** O `apply -k` sobe o `StatefulSet` do Kafka, mas — como o antigo
+> par Kafka/Zookeeper — ele **não entra no gate core** (pesado/lento num runner). Logo, a prontidão
+> do broker **KRaft** não é provada aqui; ela é validada pelo schema (kubeconform) + o contrato de
+> env do KRaft, e ao vivo no `deploy.yml` (cluster real) / minikube. O CI prova que o overlay
+> **aplica** e que o core sobe — não que o Kafka funciona.
 
 ---
 
@@ -186,7 +195,7 @@ ele pré-carrega as imagens com `kind load` sob outro nome e `imagePullPolicy: I
 kubelet nunca fala com o GHCR — o deploy ficaria verde mesmo com o pull secret quebrado. Duas peças
 resolvem, e um probe dedicado impede o falso-positivo:
 
-- [`k8s/serviceaccount.yaml`](../k8s/serviceaccount.yaml) — SA `energyhub-sa` referenciando o
+- [`k8s/base/serviceaccount.yaml`](../k8s/base/serviceaccount.yaml) — SA `energyhub-sa` referenciando o
   `ghcr-pull-secret`; os 5 Deployments apontam para ele (um ponto de verdade, não 5 cópias).
 - [`k8s/secrets/create-ghcr-pull-secret.sh`](../k8s/secrets/README.md) — cria o Secret a partir de um
   PAT `read:packages` (nunca versionado). No CI, do `GITHUB_TOKEN` **efêmero** do run.

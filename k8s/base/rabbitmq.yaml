@@ -62,7 +62,8 @@ spec:
               mountPath: /var/lib/rabbitmq
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: rabbitmq-data
 ---
 apiVersion: v1
 kind: Service
@@ -83,3 +84,20 @@ spec:
     - name: management
       port: 15672
       targetPort: 15672
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-data
+  namespace: energyhub
+  labels:
+    app: rabbitmq
+    app.kubernetes.io/part-of: energyhub
+spec:
+  # Desacopla o dado do ciclo de vida do pod: um crash/upgrade/reschedule nao apaga mais o volume.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName omitido -> classe DEFAULT do cluster (dev/kind/minikube). O overlay prod define
+  # uma classe explicita (data-persistence exige classe explicita em prod).

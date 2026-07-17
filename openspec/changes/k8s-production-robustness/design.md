@@ -35,6 +35,9 @@ This change is orchestration-only: it edits `k8s/` manifests and the `deploy.yml
 - **Decision:** The base declares one `images:` entry per service (`name: energyhub-<svc>-service`, `newName: ghcr.io/<owner>/energyhub-<svc>-service`). The pipeline sets the tag with `kustomize edit set image energyhub-<svc>-service=ghcr.io/<owner>/energyhub-<svc>-service:${GITHUB_SHA}` (or a committed overlay value), and `deploy.yml` applies the built overlay. The Deployment manifests keep a stable placeholder image name that the transformer overrides.
 - **Rationale:** The image that runs becomes a property of the rendered manifest, not a post-apply mutation. `kubectl set image` disappears; rollback is a re-apply of a previous render; and any `kustomize build` shows exactly which SHA a deploy will run.
 - **Alternative considered:** Keep `kubectl set image` — rejected because it leaves Git describing `:latest` and makes the running image invisible to `kustomize build`/GitOps. Commit the SHA into the manifests each build — rejected as noisy history and a race with the manifest source of truth.
+- **AMENDED DURING APPLY — the base fixes only the TAG, not `newName`.** The decision above (base sets `newName: ghcr…`) was tested with `kubectl kustomize` and **does not compose**: once the base transformer renames the image to `ghcr.io/…`, an overlay entry keyed by the *original* name (`energyhub-<svc>-service`) no longer matches — the base transformer runs first, so both the `dev` (back-to-local) and `prod` (SHA) overrides became silent no-ops. The working design keeps the image **name** stable through the base (base sets `newTag: latest` only, rendering the LOCAL `energyhub-<svc>-service:latest` — exactly what `kind load` provides for dev), and each overlay keys by that original name: `prod` sets `newName=ghcr… + newTag=<sha>`, `dev` inherits the local name untouched. This is also what makes task 5.2's literal `kustomize edit set image energyhub-<svc>-service=…` match. All SHALL requirements still hold (one transformer entry per service + the gateway; SHA pin via `newName`+`newTag` in `prod`; base Deployments carry a bare name with no inline tag).
+- **AMENDED — SHA injected by a scoped `sed`, not `kustomize edit`.** `kustomize edit` needs the standalone `kustomize` binary (kubectl has no `edit` subcommand); adding an unpinned download of it would undercut the SHA-pinning hardening of the previous change. `deploy.yml` uses the embedded `kubectl kustomize` + a `sed` that rewrites every `newTag:` in the `prod` overlay to `${GITHUB_SHA}` (only the 5 service entries carry `newTag:`; the gateway is kept out of the `prod` `images:` block so the SHA does not tag it).
+- **AMENDED — the migration touches BOTH workflows.** The tasks name only `deploy.yml`, but relocating manifests under `k8s/base/` breaks `ci-cd.yml`'s `kubectl apply -f k8s/`. Both were migrated: `ci-cd.yml` → `apply -k k8s/overlays/dev` (local images, matching its `kind load`), `deploy.yml` → `apply -k k8s/overlays/prod`.
 
 **Kafka in KRaft mode as a `StatefulSet`:**
 - **Decision:** Replace the Kafka `Deployment` + Zookeeper `Deployment` with a single-replica Kafka `StatefulSet` in KRaft mode: `KAFKA_PROCESS_ROLES=broker,controller`, a `KAFKA_NODE_ID`, `KAFKA_CONTROLLER_QUORUM_VOTERS` pointing at the pod's stable hostname, `KAFKA_CONTROLLER_LISTENER_NAMES`, and a formatted `CLUSTER_ID`. Front it with a **headless** `Service` for stable DNS identity (`kafka-0.kafka-headless`), keeping the existing `kafka-service` ClusterIP for clients.
@@ -74,8 +77,36 @@ This change is orchestration-only: it edits `k8s/` manifests and the `deploy.yml
 
 ## Open Questions
 
-- Should `prod` keep the stateful backends in-cluster on PVCs, or is this the point to switch Postgres/Kafka to managed services (RDS/MSK) by swapping the Secret URLs — leaving the PVCs as the `dev`-only path?
-- Which `StorageClass` and reclaim policy should `prod` require, and should PVCs use `Retain` to survive a namespace delete?
-- Should the SHA tag be injected by the pipeline (`kustomize edit set image` at deploy time) or committed into the `prod` overlay per release for a GitOps-style audit trail?
-- Should Redis and RabbitMQ also move to `StatefulSet`s for stable identity, or is a `Deployment` + PVC sufficient given they are single-replica?
-- Is a single-node KRaft quorum acceptable for `prod`, or should this change already provision a 3-node controller quorum for real fault tolerance?
+- ~~Should the SHA tag be injected by the pipeline (`kustomize edit`) or committed into the `prod`
+  overlay per release?~~ **RESOLVED — injected at deploy time** by a scoped `sed` on the `prod`
+  overlay (see the amended decision), keeping the committed overlay clean (`newTag: latest`) and the
+  running SHA a property of the render. Committing the SHA per release stays available for a future
+  GitOps flow.
+- ~~Should Redis and RabbitMQ also move to `StatefulSet`s, or is `Deployment` + PVC sufficient?~~
+  **RESOLVED — `Deployment` + PVC.** Both are single-replica with no need for stable ordinal
+  identity; a bound `ReadWriteOnce` PVC gives durability without the StatefulSet ceremony. Only Kafka
+  (which genuinely needs a stable identity for the KRaft quorum) became a StatefulSet.
+- **STILL OPEN** — Should `prod` keep the stateful backends in-cluster on PVCs, or switch
+  Postgres/Kafka to managed services (RDS/MSK) by swapping the Secret URLs, leaving PVCs as the
+  `dev`-only path? (The manifests support both; this is an environment choice, not a code change.)
+- **STILL OPEN** — Which `StorageClass` and reclaim policy should `prod` require? The overlay ships a
+  `gp3` **placeholder** that the operator must adjust; whether prod PVCs should use `Retain` to
+  survive a namespace delete is deliberately left to the operator (durability vs. clean teardown).
+- **STILL OPEN** — Is a single-node KRaft quorum acceptable for `prod`, or should a 3-node controller
+  quorum be provisioned? This change ships single-node (matching the current single-replica scale,
+  per the Non-Goals); a real fault-tolerant quorum is a larger follow-up.
+
+## Findings from the apply (verified with `kubectl kustomize` / kubeconform, not assumed)
+
+- **The base must NOT set `newName` on the image transformer** — only the tag. Verified empirically:
+  a base `newName` makes overlay overrides keyed by the original name silently no-op. This shaped the
+  whole base/overlay image design (see the amended decision above).
+- **A dangling `allow-zookeeper-ingress` NetworkPolicy** survived the Zookeeper removal; kubeconform
+  surfaced it. Removed. The Kafka policy also only allowed `:9092`; the KRaft controller port `:9093`
+  (the broker's self-connection for the metadata quorum) was added — under `default-deny` on a CNI
+  that applies policy to pod→own-IP traffic, its absence would stop the quorum from forming.
+- **kind ignores NetworkPolicies** (kindnetd doesn't enforce them), so the CI kind deploy would pass
+  even if the Kafka policy were wrong — another reason the `:9093` fix matters only on a real CNI and
+  is validated by schema/review, not by the CI.
+- **The CI's manual `scale --replicas=1` step became redundant** — the `dev` overlay renders single
+  replica — and was removed.

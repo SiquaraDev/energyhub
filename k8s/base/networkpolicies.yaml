@@ -22,9 +22,9 @@
 #                           traefik            ->  consul:8500                     (provider consulCatalog)
 #   Cache/rate-limit:       auth/client/contract/financial/audit -> redis:6379
 #   Streams (Kafka):        contract/financial (producers), audit (consumer) -> kafka:9092
-#                           (kafka expõe só o listener PLAINTEXT :9092 no cluster — ver k8s/kafka.yaml;
+#                           (kafka expõe o listener PLAINTEXT :9092 aos clientes — ver k8s/base/kafka.yaml;
 #                            não há 29092 aqui, esse par host/interno só existe no docker-compose)
-#   Coordenação do broker:  kafka              ->  zookeeper:2181                  (znodes do broker.id)
+#   Quórum KRaft:           kafka              ->  kafka:9093                      (controller, nó único; sem Zookeeper)
 #   Borda externa:          ns ingress-nginx   ->  traefik:80                      (Ingress -> traefik-service)
 #
 # PRÉ-REQUISITO CRÍTICO: a CNI do cluster PRECISA implementar NetworkPolicy. Várias CNIs default
@@ -283,8 +283,12 @@ spec:
         - protocol: TCP
           port: 6379
 ---
-# 11) kafka:9092 — contract e financial publicam (producers); audit consome. Listener único
-#     PLAINTEXT :9092 (ver k8s/kafka.yaml — não há 29092 no cluster).
+# 11) kafka — modo KRaft (k8s-production-robustness): SEM Zookeeper.
+#     • :9092 (PLAINTEXT) — contract/financial publicam (producers), audit consome.
+#     • :9093 (CONTROLLER) — quórum de metadados do KRaft. Como é um nó único, o broker fala com o
+#       PRÓPRIO controller (kafka-0.kafka-headless:9093, que resolve para o IP do próprio pod).
+#       Sob default-deny, num CNI que aplica policy ao tráfego pod→próprio-IP (Calico/Cilium), sem
+#       esta regra o quórum não forma e o broker nunca sobe. Liberado de `app: kafka` para si mesmo.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -308,30 +312,14 @@ spec:
       ports:
         - protocol: TCP
           port: 9092
----
-# 12) zookeeper:2181 — só o broker Kafka coordena aqui (znodes do broker.id). Sem esta regra o
-#     default-deny cortaria kafka -> zookeeper e o broker nunca subiria; incluída por completude.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-zookeeper-ingress
-  namespace: energyhub
-  labels:
-    app.kubernetes.io/part-of: energyhub
-spec:
-  podSelector:
-    matchLabels:
-      app: zookeeper
-  policyTypes:
-    - Ingress
-  ingress:
+    # Quórum KRaft — o broker alcança o próprio controller (:9093).
     - from:
         - podSelector:
             matchLabels:
               app: kafka
       ports:
         - protocol: TCP
-          port: 2181
+          port: 9093
 ---
 # 13) traefik:80 — borda da plataforma. O tráfego externo chega pelo NGINX Ingress, que roda em
 #     OUTRO namespace (ingress-nginx). Como as policies aqui só selecionam pods de `energyhub`, e o

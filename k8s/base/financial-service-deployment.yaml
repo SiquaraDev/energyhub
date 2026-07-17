@@ -1,48 +1,48 @@
-# contract-service — Deployment (Fase 16). Contratos (:8003, contractdb). Usa Kafka (não RabbitMQ).
+# financial-service — Deployment (Fase 16). Faturas (:8004, financialdb). Usa Kafka (não RabbitMQ).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: contract-service
+  name: financial-service
   namespace: energyhub
   labels:
-    app: contract-service
+    app: financial-service
     app.kubernetes.io/part-of: energyhub
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: contract-service
+      app: financial-service
   template:
     metadata:
       labels:
-        app: contract-service
+        app: financial-service
         app.kubernetes.io/part-of: energyhub
     spec:
       # Ver auth-service-deployment.yaml: evita colisão das env vars de Service (docker-links)
       # do k8s com os campos `*_service_port` do Settings (pydantic).
       enableServiceLinks: false
-      # Traz o imagePullSecrets do GHCR via k8s/serviceaccount.yaml. Sem isto, num cluster
-      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-contract-service
+      # Traz o imagePullSecrets do GHCR via k8s/base/serviceaccount.yaml. Sem isto, num cluster
+      # REAL o kubelet nao autentica e a imagem PRIVADA ghcr.io/siquaradev/energyhub-financial-service
       # cai em ImagePullBackOff. No kind do CI a imagem e pre-carregada, entao nao ha pull.
       serviceAccountName: energyhub-sa
       containers:
-        - name: contract-service
-          image: energyhub-contract-service:latest
+        - name: financial-service
+          image: energyhub-financial-service   # tag suprida pelo images: transformer do Kustomize (base=latest, prod=<sha>)
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8003
+              containerPort: 8004
           envFrom:
             - configMapRef:
                 name: energyhub-config
             - configMapRef:
-                name: contract-service-config
+                name: financial-service-config
           env:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: energyhub-secret
-                  key: CONTRACT_DATABASE_URL
+                  key: FINANCIAL_DATABASE_URL
             # RabbitMQ: eventos de negocio vao pro Kafka, mas a TRILHA DE AUDITORIA
             # (fix-microservices-gaps) publica na fila `audit` do RabbitMQ.
             - name: RABBITMQ_URL
@@ -70,7 +70,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8003
+              port: 8004
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -78,7 +78,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8003
+              port: 8004
             initialDelaySeconds: 40
             periodSeconds: 15
             timeoutSeconds: 5
@@ -90,4 +90,4 @@ spec:
       volumes:
         - name: service-config
           configMap:
-            name: contract-service-config
+            name: financial-service-config

@@ -1,0 +1,42 @@
+# Overlay DEV — cluster local (kind/minikube) e a validação de deploy do CI (ci-cd.yml).
+#
+# Divergências em relação à base (só o que muda em dev):
+#   • Imagens: HERDADAS da base → `energyhub-<svc>-service:latest` (nome LOCAL, exatamente o que o
+#     `kind load` carrega). Nada a sobrepor aqui — a base já rende o nome local (ver o comentário do
+#     images: transformer na base). O overlay prod é quem troca para ghcr.io/<sha>.
+#   • Réplicas: tudo em 1 (dev não precisa de par; cabe na RAM do runner do CI).
+#   • StorageClass: OMITIDO → usa a classe default do cluster (kind/minikube = standard). O overlay
+#     prod define uma classe explícita.
+#   • ENVIRONMENT: HERDADO da base (production) — mantém a guarda de credenciais dos microsserviços
+#     ativa também no deploy do kind (o CI a satisfaz com um Secret efêmero de valores aleatórios).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Marca de identidade do ambiente (não toca selectors — includeSelectors:false — para não colidir
+# com os selectors imutáveis dos workloads).
+labels:
+  - pairs:
+      app.kubernetes.io/environment: dev
+    includeSelectors: false
+
+patches:
+  # Réplica única em dev para TODOS os Deployments (serviços 2→1; backends já são 1). O Kafka é
+  # StatefulSet, não Deployment, então este patch não o toca — ele fica em 1 (base).
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/part-of=energyhub
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  # HPAs em dev com piso 1 (consistente com replicas:1). Em kind sem metrics-server o HPA nem atua;
+  # num minikube com metrics-server, o piso 1 evita que ele reinfle os serviços para 2.
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1

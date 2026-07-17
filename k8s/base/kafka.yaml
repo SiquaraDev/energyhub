@@ -1,0 +1,170 @@
+# Kafka in-cluster — modo KRaft, SEM Zookeeper (k8s-production-robustness).
+#
+# Antes (Fase 16): um Deployment de broker único acoplado a um Deployment de Zookeeper. Aquilo exigia
+# `strategy: Recreate` (para dois brokers nunca disputarem o mesmo broker.id no znode) e não tinha
+# volume nenhum — o log vivia na camada efêmera do container e sumia a cada restart.
+#
+# Agora: um StatefulSet KRaft de nó único combinando os papéis broker+controller. O KRaft dá ao
+# próprio Kafka o quórum de metadados (sem Zookeeper), o que ELIMINA a classe inteira de problemas de
+# acoplamento que o Recreate contornava. O StatefulSet dá identidade estável (kafka-0.kafka-headless)
+# e é o lar natural do volumeClaimTemplates — o log agora sobrevive a restart/reschedule.
+#
+# Migração NÃO é in-place: um broker que rodava sob Zookeeper não adota KRaft no mesmo log dir. Como
+# não há Kafka de produção ainda e o dado de dev é descartável, o volume KRaft nasce recém-formatado
+# (o entrypoint do cp-kafka roda `kafka-storage format` com o CLUSTER_ID quando o log dir está vazio).
+---
+# Service headless — dá ao pod uma identidade DNS estável (kafka-0.kafka-headless) e governa o
+# StatefulSet. publishNotReadyAddresses: o controller precisa resolver a si mesmo (quorum voter)
+# JÁ no startup, antes do readiness passar — sem isto o DNS do pod não existe e o boot trava.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-headless
+  namespace: energyhub
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: energyhub
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: kafka
+  ports:
+    - name: broker
+      port: 9092
+      targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
+---
+# Service ClusterIP — o endereço que os CLIENTES usam (kafka-service:9092), inalterado desde a
+# Fase 16. Mantém publishNotReadyAddresses porque o broker alcança o próprio listener anunciado
+# (kafka-service:9092) durante o startup, antes de ficar ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-service
+  namespace: energyhub
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: energyhub
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  selector:
+    app: kafka
+  ports:
+    - name: broker
+      port: 9092
+      targetPort: 9092
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: energyhub
+  labels:
+    app: kafka
+    app.kubernetes.io/part-of: energyhub
+spec:
+  serviceName: kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        app.kubernetes.io/part-of: energyhub
+    spec:
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: broker
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          env:
+            # --- KRaft: nó único combinando broker + controller (sem Zookeeper) ---
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            # Quórum de metadados de 1 voto, apontando para o DNS estável do próprio pod (:9093).
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "1@kafka-0.kafka-headless.energyhub.svc.cluster.local:9093"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            # CLUSTER_ID fixo — o entrypoint do cp-kafka roda `kafka-storage format --cluster-id` no
+            # PRIMEIRO boot (log dir vazio); nos boots seguintes o meta.properties já existe e pula.
+            # DEVE ser um UUID de 16 bytes em base64-url SEM padding (22 chars) — o Kafka faz
+            # `Base64.getUrlDecoder().decode()` e exige exatamente 16 bytes; um valor livre é rejeitado
+            # e o broker entra em CrashLoopBackOff. Este valor decodifica para 16 bytes (verificado).
+            - name: CLUSTER_ID
+              value: "ZW5lcmd5aHVia3JhZnQwMQ"
+            # --- Listeners: PLAINTEXT (broker, clientes) + CONTROLLER (quorum interno) ---
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://kafka-service:9092"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            # Log dir sobre o PVC (volumeClaimTemplates abaixo) — persiste o commit log.
+            - name: KAFKA_LOG_DIRS
+              value: "/var/lib/kafka/data"
+            # --- Fatores de replicação = 1 (nó único), como na Fase 16 ---
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            # Heap explícito — o default do cp-kafka (-Xmx1G) estoura o limite do container (OOMKilled).
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xmx512m -Xms512m"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "768Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1536Mi"
+          readinessProbe:
+            exec:
+              command: ["kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 8
+          livenessProbe:
+            exec:
+              command: ["kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka/data
+  # volumeClaimTemplates: cada réplica do StatefulSet ganha seu PVC próprio e estável, reatado ao
+  # mesmo pod ordinal a cada reschedule — é o que faz o commit log sobreviver. storageClassName
+  # omitido de propósito: usa a classe DEFAULT do cluster (dev/kind/minikube); o overlay prod define
+  # uma classe explícita.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: kafka
+          app.kubernetes.io/part-of: energyhub
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

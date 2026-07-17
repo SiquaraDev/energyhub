@@ -1,0 +1,71 @@
+# Overlay PROD — cluster real (deploy.yml, atrás de KUBE_CONFIG).
+#
+# Divergências em relação à base (só o que muda em prod):
+#   • Imagens: cada serviço fixado em ghcr.io/<owner>/energyhub-<svc>-service. A TAG default aqui é
+#     `latest`, mas o deploy.yml INJETA o commit SHA (substitui os `newTag:` deste arquivo antes do
+#     apply) — assim a imagem que roda é reproduzível a partir do manifesto renderizado, sem
+#     `kubectl set image`. Um `kubectl kustomize k8s/overlays/prod` mostra exatamente qual SHA será
+#     aplicado. (A key é o NOME ORIGINAL `energyhub-<svc>-service`, que a base preservou — é isso que
+#     faz esta sobreposição casar; ver o comentário do images: transformer na base.)
+#   • StorageClass: EXPLÍCITA (data-persistence exige classe explícita em prod, não a default).
+#   • HPAs: piso/teto maiores (prod escala mais).
+#   • ENVIRONMENT: HERDADO da base (production).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      app.kubernetes.io/environment: prod
+    includeSelectors: false
+
+# Pin declarativo por serviço → GHCR. O deploy.yml substitui os `newTag: latest` abaixo pelo
+# ${GITHUB_SHA} do release. O gateway (traefik) NÃO entra aqui de propósito: ele é imagem oficial,
+# fixada na base — se estivesse aqui, a injeção do SHA o marcaria com uma tag inexistente.
+images:
+  - name: energyhub-auth-service
+    newName: ghcr.io/siquaradev/energyhub-auth-service
+    newTag: latest
+  - name: energyhub-client-service
+    newName: ghcr.io/siquaradev/energyhub-client-service
+    newTag: latest
+  - name: energyhub-contract-service
+    newName: ghcr.io/siquaradev/energyhub-contract-service
+    newTag: latest
+  - name: energyhub-financial-service
+    newName: ghcr.io/siquaradev/energyhub-financial-service
+    newTag: latest
+  - name: energyhub-audit-service
+    newName: ghcr.io/siquaradev/energyhub-audit-service
+    newTag: latest
+
+patches:
+  # StorageClass explícita em cada PVC dos backends (postgres/redis/rabbitmq). `gp3` é um
+  # PLACEHOLDER — ajuste ao StorageClass do seu cluster (ex.: gp3/EBS na AWS, premium-rwo no GKE,
+  # managed-csi no AKS). O que a spec exige é uma classe EXPLÍCITA, não a default implícita.
+  - target:
+      kind: PersistentVolumeClaim
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: gp3
+  # Mesma classe explícita no volumeClaimTemplate do StatefulSet do Kafka.
+  - target:
+      kind: StatefulSet
+      name: kafka
+    patch: |-
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: gp3
+  # Autoscaling de produção: piso 3 / teto 10 (a base é 2/5).
+  - target:
+      kind: HorizontalPodAutoscaler
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10

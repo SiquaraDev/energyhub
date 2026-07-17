@@ -1128,18 +1128,22 @@ a partir das **tags `traefik.*`** que cada serviço publica no Consul, roteando 
 ## ☸️ 21. Orquestração com Kubernetes (Fase 16)
 
 A Fase 16 declara **toda a plataforma como manifestos Kubernetes** em [`k8s/`](../k8s/) — o estado
-desejado de um cluster, aplicado com `kubectl apply -f k8s/`. Consome as imagens da Fase 14 e as
-fronteiras da Fase 15; **não altera código de aplicação** — só a camada de orquestração. Validado
-num cluster **minikube** local (Kubernetes v1.35). Procedimento completo em [`k8s/README.md`](../k8s/README.md).
+desejado de um cluster. Desde o endurecimento (_k8s-production-robustness_), os manifestos vivem sob
+[`k8s/base/`](../k8s/base/) e são aplicados por **overlays Kustomize** —
+`kubectl apply -k k8s/overlays/dev` (ou `prod`), não mais `kubectl apply -f k8s/`. Consome as imagens
+da Fase 14 e as fronteiras da Fase 15; **não altera código de aplicação** — só a camada de
+orquestração. Validado num cluster **minikube** local (Kubernetes v1.35). Procedimento completo em
+[`k8s/README.md`](../k8s/README.md).
 
-**O que roda no cluster** (namespace `energyhub`, 40 documentos YAML):
+**O que roda no cluster** (namespace `energyhub`; a base em [`k8s/base/`](../k8s/base/) renderiza ~54
+documentos via `kubectl kustomize k8s/overlays/<env>`):
 
 | Camada | Recursos |
 | :----- | :------- |
 | Microsserviços | `Deployment` + `Service` (ClusterIP) + `HPA` — auth/client/contract/financial/audit |
 | Gateway/discovery | `traefik` + `traefik-service` (**LoadBalancer**), `consul` + `consul-service` |
 | Borda | `Ingress` (classe `nginx`) `energyhub.local` → `traefik-service:80` |
-| Backends stateful | `postgres` (+ initdb dos 5 bancos), `redis`, `rabbitmq`, `kafka`, `zookeeper` |
+| Backends stateful | `postgres` (+ initdb dos 5 bancos), `redis`, `rabbitmq` — todos **PVC-backed**; `kafka` = **StatefulSet KRaft** (sem Zookeeper) |
 | Config | `energyhub-config` + `<svc>-config` (ConfigMaps) + `energyhub-secret` (Secret) |
 
 **Config × Secret.** Valores não sensíveis (ambiente, Consul, porta, `SERVICE_HOST`, Redis/Kafka)
@@ -1159,19 +1163,23 @@ cluster (`consul-service`, `postgres-service`, `client-service`, …) substitui 
 escalou **2 → 5** (`SuccessfulRescale … cpu … above target`) e recolheu a `2` após a janela de
 estabilização.
 
-**Backends stateful in-cluster (decisão).** Resolvendo a _Open Question_ do design: em dev os data
-stores rodam **dentro** do cluster (endereçados por DNS, `emptyDir`); em produção troca-se para
-managed stores externos ajustando **só as URLs no Secret** — nenhum outro manifesto muda.
+**Backends stateful in-cluster (decisão).** Em dev os data stores rodam **dentro** do cluster
+(endereçados por DNS). Desde o endurecimento (_k8s-production-robustness_) o armazenamento é
+**durável** — cada backend monta um `PersistentVolumeClaim` (Postgres/Redis/RabbitMQ) ou um
+`volumeClaimTemplate` (Kafka), não mais `emptyDir` — e o dado sobrevive a restart/reschedule. Em
+produção, alternativamente troque para managed stores externos ajustando **só as URLs no Secret**.
 
 > **Correções necessárias sob k8s (reconciliações reais):**
 > - **`enableServiceLinks: false`** nos 5 serviços — o k8s injeta env vars estilo docker-links
 >   (ex.: `AUTH_SERVICE_PORT=tcp://…:8001`) que colidem com os campos `*_service_port` do `Settings`
 >   (pydantic) e quebram o parse. Desligá-las faz o app usar seus defaults de DNS + Consul.
-> - **Kafka**: `KAFKA_HEAP_OPTS=-Xmx512m` (o default `-Xmx1G` estoura o limite → `OOMKilled`);
->   `strategy: Recreate` (broker único — com `RollingUpdate` os dois pods disputam `broker.id=1` no
->   Zookeeper → `NodeExists`); `publishNotReadyAddresses: true` no Service (o broker precisa se
->   alcançar por `kafka-service:9092` **antes** do readiness passar). Tópicos com `auto-create` off
->   devem ser criados (ex.: `contract-events`).
+> - **Kafka (modo KRaft, _k8s-production-robustness_)**: roda como `StatefulSet` combinando
+>   broker+controller, **sem Zookeeper** — o que aposenta o antigo `strategy: Recreate` (que existia
+>   só para dois brokers não disputarem `broker.id` no znode). `KAFKA_HEAP_OPTS=-Xmx512m` (o default
+>   `-Xmx1G` estoura o limite → `OOMKilled`); `publishNotReadyAddresses: true` nos Services (o broker
+>   precisa alcançar o próprio listener/controller **antes** do readiness); `CLUSTER_ID` é um UUID de
+>   16 bytes em base64url (o `kafka-storage format` o exige). Tópicos com `auto-create` off devem ser
+>   criados (ex.: `contract-events`).
 >
 > **Limitação herdada da Fase 15 (fora do escopo da orquestração):** `register_with_consul` usa
 > `service_id = {name}-{port}` — **não único por réplica**. Com `replicas > 1` + rotatividade de

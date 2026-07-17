@@ -128,7 +128,7 @@ O fluxo tem duas peças:
 | Peça | O quê |
 | :--- | :---- |
 | `ghcr-pull-secret` | `kubernetes.io/dockerconfigjson` com o token do GHCR. **Não versionado** (embute o token em claro). |
-| [`k8s/serviceaccount.yaml`](../serviceaccount.yaml) | SA `energyhub-sa` que referencia o Secret. Os 5 Deployments apontam para ele via `serviceAccountName` — um único ponto de verdade. |
+| [`k8s/base/serviceaccount.yaml`](../base/serviceaccount.yaml) | SA `energyhub-sa` que referencia o Secret. Os 5 Deployments apontam para ele via `serviceAccountName` — um único ponto de verdade. |
 
 ```bash
 # Token: PAT CLÁSSICO com escopo read:packages e NADA MAIS. Se o cluster for comprometido, um
@@ -153,7 +153,7 @@ kubectl -n energyhub get serviceaccount energyhub-sa -o jsonpath='{.imagePullSec
 
 Dá para dispensar o pull secret **inteiro** publicando as imagens como públicas
 (GitHub → Packages → *Package settings* → *Change visibility* → Public), e então removendo o bloco
-`imagePullSecrets` de `k8s/serviceaccount.yaml`. Sem credencial, sem rotação, sem preflight.
+`imagePullSecrets` de `k8s/base/serviceaccount.yaml`. Sem credencial, sem rotação, sem preflight.
 
 **O trade-off, honestamente:**
 

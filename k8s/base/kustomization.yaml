@@ -1,0 +1,80 @@
+# Base Kustomize da plataforma EnergyHub (k8s-production-robustness).
+#
+# Esta base é a ÚNICA fonte de estrutura: agrega todos os manifestos de workload da Fase 16 (agora
+# sob k8s/base/) e declara o `images:` transformer que gerencia as imagens dos serviços em UM lugar,
+# em vez de `:latest` embutido em cada Deployment. Os overlays (k8s/overlays/{dev,prod}) referenciam
+# esta base e aplicam só as diferenças de ambiente.
+#
+# FORA da base de propósito (dependem de controllers/segredos, aplicados à parte):
+#   • k8s/cert-manager/  → CRDs Issuer/Certificate (exigem o cert-manager instalado)
+#   • k8s/secrets/       → energyhub-secret e ghcr-pull-secret NÃO são versionados (SealedSecret/
+#                          ExternalSecret ou script), materializados fora desta esteira.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Todos os recursos já declaram `namespace: energyhub`; reafirmamos aqui para que qualquer recurso
+# novo herde o namespace sem precisar repeti-lo.
+namespace: energyhub
+
+resources:
+  # --- Fundação: namespace + ServiceAccount (pull secret do GHCR) + config comum ---
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  # --- Backends stateful (agora PVC-backed; Kafka é StatefulSet KRaft) ---
+  - postgres.yaml
+  - redis.yaml
+  - rabbitmq.yaml
+  - kafka.yaml
+  - consul-deployment.yaml
+  - consul-service.yaml
+  # --- Microsserviços: ConfigMap + Deployment + Service + HPA por serviço ---
+  - auth-service-configmap.yaml
+  - auth-service-deployment.yaml
+  - auth-service-service.yaml
+  - auth-service-hpa.yaml
+  - client-service-configmap.yaml
+  - client-service-deployment.yaml
+  - client-service-service.yaml
+  - client-service-hpa.yaml
+  - contract-service-configmap.yaml
+  - contract-service-deployment.yaml
+  - contract-service-service.yaml
+  - contract-service-hpa.yaml
+  - financial-service-configmap.yaml
+  - financial-service-deployment.yaml
+  - financial-service-service.yaml
+  - financial-service-hpa.yaml
+  - audit-service-configmap.yaml
+  - audit-service-deployment.yaml
+  - audit-service-service.yaml
+  - audit-service-hpa.yaml
+  # --- Borda: gateway Traefik + Ingress + NetworkPolicies ---
+  - traefik-config.yaml
+  - traefik-deployment.yaml
+  - traefik-service.yaml
+  - ingress.yaml
+  - networkpolicies.yaml
+
+# images: transformer — UMA entrada por serviço (5 apps + o gateway). A base fixa só a TAG
+# (`newTag: latest`), mantendo o NOME da imagem intacto (`energyhub-<svc>-service`), o que é o que
+# faz a composição base→overlay funcionar:
+#   • a base renderiza `energyhub-<svc>-service:latest` (exatamente o que o `kind load` carrega — dev);
+#   • o overlay prod, keyeando pelo MESMO nome original, sobrepõe newName=ghcr.io/... e newTag=<sha>.
+# (Se a base já reescrevesse newName=ghcr, o overlay keyeado pelo nome original NÃO casaria — o
+# transformer da base roda primeiro e renomearia a imagem antes do overlay ver. Verificado com
+# `kubectl kustomize`.) Os Deployments da base carregam só `energyhub-<svc>-service` (sem tag).
+images:
+  - name: energyhub-auth-service
+    newTag: latest
+  - name: energyhub-client-service
+    newTag: latest
+  - name: energyhub-contract-service
+    newTag: latest
+  - name: energyhub-financial-service
+    newTag: latest
+  - name: energyhub-audit-service
+    newTag: latest
+  # Gateway: imagem oficial (não construída aqui). Entrada declarativa fixando a versão do Traefik.
+  - name: traefik
+    newTag: v3.1

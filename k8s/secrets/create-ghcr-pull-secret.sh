@@ -5,7 +5,7 @@
 # Por que existe: ghcr.io/siquaradev/energyhub-*-service sao pacotes PRIVADOS (um GET anonimo no
 # manifest devolve 401). Num cluster real nao ha `docker login`; sem credencial o kubelet falha o
 # pull e os pods ficam em ImagePullBackOff. Este Secret e a credencial; o SA `energyhub-sa`
-# (k8s/serviceaccount.yaml) o entrega aos 5 servicos.
+# (k8s/base/serviceaccount.yaml) o entrega aos 5 servicos.
 #
 # Por que um SCRIPT e nao um YAML versionado: um `kubernetes.io/dockerconfigjson` embute o TOKEN em
 # claro (base64 nao e cifra). Commitar isso repetiria exatamente o erro que a mudanca anterior

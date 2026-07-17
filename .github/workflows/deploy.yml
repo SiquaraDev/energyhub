@@ -66,15 +66,10 @@ jobs:
       - name: Lowercase owner
         run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
-      # Namespace PRIMEIRO: `kubectl apply -f k8s/` aplica em ordem alfabética, então recursos
-      # namespaced (audit-*, auth-*, ...) chegariam ANTES de namespace.yaml num cluster novo e
-      # falhariam com "namespace not found". Aplicar o namespace antes garante a ordem.
-      # O ServiceAccount entra aqui pelo MESMO motivo: alfabeticamente serviceaccount.yaml vem
-      # depois dos Deployments, que ficariam em "error looking up service account" até ele existir.
-      - name: Apply namespace and ServiceAccount
-        run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/serviceaccount.yaml
+      # Namespace PRIMEIRO: garante o namespace existindo antes dos preflights de Secret e do
+      # `apply -k` (que traz o ServiceAccount + todo o resto do overlay prod). Caminho agora sob base/.
+      - name: Apply namespace
+        run: kubectl apply -f k8s/base/namespace.yaml
 
       # `energyhub-secret` NAO e versionado (harden-security-credentials): num cluster real ele vem
       # de um SealedSecret/ExternalSecret (ver k8s/secrets/), aplicado FORA desta esteira. Sem ele os
@@ -104,14 +99,10 @@ jobs:
           fi
           echo "ghcr-pull-secret presente"
 
-      # `k8s/cert-manager/` e `k8s/secrets/` ficam FORA da varredura (`-f k8s/` e nao-recursivo):
-      # dependem de controllers (cert-manager / sealed-secrets) instalados como pre-requisito.
-      - name: Apply manifests
-        run: kubectl apply -f k8s/
-
-      # docker.yml roda em paralelo (mesmo push) e pode ainda não ter publicado as imagens SHA.
-      # Espera-as no GHCR antes de fixá-las, senão o `set image` aponta para uma tag inexistente
-      # (ImagePullBackOff → rollout falha → rollback). Precisa de login (imagens privadas por padrão).
+      # docker.yml roda em paralelo (mesmo push) e pode ainda não ter publicado as imagens SHA. O
+      # apply do overlay prod referencia ghcr.io/.../<sha>, então as imagens PRECISAM existir ANTES
+      # do apply — senão os pods caem em ImagePullBackOff. Login (imagens privadas) + espera vêm
+      # primeiro. (cert-manager/ e secrets/ seguem FORA da base — dependem de controllers/segredos.)
       - name: Log in to GHCR
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
@@ -131,22 +122,32 @@ jobs:
             [ -n "$found" ] || { echo "::error::timeout esperando $ref (o build de imagens publicou?)"; exit 1; }
           done
 
-      # Fixa a imagem de cada serviço na tag imutável do commit (SHA), publicada pelo docker.yml —
-      # resolve a Open Question #1 (rastreabilidade) SEM editar os manifestos em k8s/ (o nome do
-      # container == nome do deployment == <svc>-service).
-      - name: Pin images to this commit (SHA)
+      # Deploy DECLARATIVO via Kustomize (k8s-production-robustness): injeta o commit SHA no
+      # `images:` transformer do overlay prod e aplica com `-k`. A imagem que roda vira propriedade
+      # do manifesto renderizado — SEM `kubectl set image`. `kubectl kustomize` (embutido no kubectl)
+      # mostra o SHA exato antes do apply; nada de binário `kustomize` externo (que seria mais um
+      # download não-fixado, contra o endurecimento de supply-chain da mudança anterior).
+      #
+      # A injeção é um `sed` escopado: no overlay prod SÓ as 5 entradas de serviço têm `newTag:`
+      # (o gateway fica fora do bloco images: do prod), e todas recebem o MESMO SHA — que é o correto,
+      # os 5 serviços são publicados no mesmo commit. O ServiceAccount vem no apply (kubectl ordena
+      # ServiceAccount antes de Deployment), então os pods já resolvem o imagePullSecrets do GHCR.
+      - name: Render prod overlay with this commit SHA and apply
         run: |
-          for s in auth client contract financial audit; do
-            kubectl -n energyhub set image "deployment/${s}-service" \
-              "${s}-service=ghcr.io/${OWNER}/energyhub-${s}-service:${GITHUB_SHA}"
-          done
+          sed -i "s|^\( *newTag: \).*|\1${GITHUB_SHA}|" k8s/overlays/prod/kustomization.yaml
+          echo "Imagens que serão aplicadas:"
+          kubectl kustomize k8s/overlays/prod | grep -E "image: ghcr" | sort -u
+          kubectl apply -k k8s/overlays/prod
 
-      # Verifica o rollout dos deployments-chave e FALHA se algum não completar (dispara rollback).
+      # Verifica o rollout e FALHA se algum não completar (dispara rollback). Inclui o StatefulSet do
+      # Kafka (KRaft) — `rollout status` funciona em StatefulSet, e é aqui, num cluster REAL, que a
+      # prontidão do broker KRaft é de fato exercitada (o kind do CI não aguarda o Kafka).
       - name: Verify rollout
         run: |
           for d in auth-service client-service contract-service financial-service audit-service traefik; do
             kubectl -n energyhub rollout status "deployment/${d}" --timeout=300s
           done
+          kubectl -n energyhub rollout status statefulset/kafka --timeout=300s
 
       - name: Wait for availability
         run: |

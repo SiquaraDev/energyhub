@@ -53,7 +53,8 @@ spec:
               mountPath: /data
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: redis-data
 ---
 apiVersion: v1
 kind: Service
@@ -71,3 +72,20 @@ spec:
     - name: redis
       port: 6379
       targetPort: 6379
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: energyhub
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: energyhub
+spec:
+  # Desacopla o dado do ciclo de vida do pod: um crash/upgrade/reschedule nao apaga mais o volume.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName omitido -> classe DEFAULT do cluster (dev/kind/minikube). O overlay prod define
+  # uma classe explicita (data-persistence exige classe explicita em prod).
