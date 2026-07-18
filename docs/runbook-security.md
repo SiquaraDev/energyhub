@@ -75,10 +75,16 @@ adiciona a coluna `require_password_rotation` e, **fora do perfil `development`*
 
 1. **Gerar:** `openssl rand -base64 24` (senha em texto) — ou pré-compute o hash bcrypt e use
    `ADMIN_PASSWORD_HASH`.
-2. **Definir** (variável de ambiente **do deploy da migração**, não de runtime do app):
-   - _Compose/local:_ `ADMIN_PASSWORD` no `.env`. A rotação-no-primeiro-uso é dirigida por
-     **`ENVIRONMENT`** (a migração `0011` só marca `require_password_rotation` fora de `development`) —
-     **não** por `ADMIN_REQUIRE_PASSWORD_ROTATION`, que nenhum código lê (var vestigial no `.env.example`).
+2. **Definir** (variável de ambiente **do deploy da migração**, não de runtime do app — a migração
+   lê `os.environ`, nunca o objeto de settings):
+   - _Compose:_ `ADMIN_PASSWORD` no `.env` **basta** — o `docker-compose.yml` o repassa ao container
+     `energyhub-api` (bloco `environment:`), então `docker compose exec energyhub-api alembic upgrade head`
+     enxerga a variável.
+   - _Host (alembic direto):_ o `.env` **não** popula `os.environ`; **exporte no shell** antes de migrar
+     (`$env:ADMIN_PASSWORD='…'` no PowerShell; `ADMIN_PASSWORD='…' poetry run alembic upgrade head` no bash).
+   - A rotação-no-primeiro-uso é dirigida por **`ENVIRONMENT`** (a migração `0011` só marca
+     `require_password_rotation` fora de `development`) — **não** por `ADMIN_REQUIRE_PASSWORD_ROTATION`,
+     que nenhum código lê (var vestigial no `.env.example`).
    - _Kubernetes:_ exporte `ADMIN_PASSWORD` (ou `ADMIN_PASSWORD_HASH`) e `ENVIRONMENT` no ambiente
      onde a migração `alembic upgrade head` roda (job/pod de migração), **não** no Secret de runtime.
 3. **Rotação de uma conta já existente** (não é um re-seed): faça login e troque a senha pela API

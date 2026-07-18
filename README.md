@@ -222,11 +222,9 @@ no guia **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 ```
 energyhub/
 ├── docs/                      # 📚 Documentação (README, ROADMAP, CHANGELOG, ARCHITECTURE, fase-0/)
-├── openspec/                  # 📋 Especificações spec-driven (18 fases)
+├── openspec/                  # 📋 Especificações spec-driven (18 fases + 5 changes pós-1.0, arquivadas)
 │   ├── changes/
-│   │   ├── implement-fase-0/  #    proposal · design · tasks · specs/
-│   │   ├── implement-fase-1/
-│   │   └── ...                #    até implement-fase-17
+│   │   └── archive/           #    2026-…-implement-fase-0/ … -fase-17/ + harden-*/fix-*/… (concluídas)
 │   ├── specs/                 #    baseline de capacidades
 │   └── config.yaml
 ├── energyhub/                 # 🐍 Projeto Python (Poetry, layout src/)
@@ -285,8 +283,8 @@ src/energyhub/<módulo>/
 ### Pré-requisitos
 
 - [Python 3.12+](https://www.python.org/)
-- [Poetry](https://python-poetry.org/)
-- [Docker](https://www.docker.com/) e Docker Compose (para PostgreSQL e demais serviços)
+- [Poetry](https://python-poetry.org/) **≥ 2.1** (2.4.1 no CI/Docker) — versões < 2.1 não leem o grupo `dev` em `[dependency-groups]` (PEP 735) e instalam **zero** ferramentas de dev
+- [Docker](https://www.docker.com/) com **Compose v2** — comando com espaço (`docker compose`); o `docker-compose` v1 está fora de suporte
 
 ### 1. Clonar o repositório
 
@@ -317,21 +315,29 @@ depois das dependências saudáveis):
 
 ```bash
 docker compose up -d                                    # constrói a API + sobe a stack toda
-docker compose ps                                       # todos "Up (healthy)"
+docker compose ps                                       # infra (postgres/redis/rabbitmq/es/kafka/consul) fica "Up (healthy)"; API e microsserviços ficam "Up"
 curl -s http://localhost:8000/health                    # {"status":"healthy"}
 ```
 
-No **primeiro boot** com o banco vazio, aplique as migrações (o admin é semeado por elas, a partir do
-`ADMIN_PASSWORD`/`ADMIN_PASSWORD_HASH` do `.env`):
+No **primeiro boot** com o banco vazio, aplique as migrações. O admin é semeado por elas a partir do
+`ADMIN_PASSWORD` (ou `ADMIN_PASSWORD_HASH`) do `.env` — que o Compose repassa ao container
+`energyhub-api`. **Se você não definiu `ADMIN_PASSWORD` no `.env`, o admin não é criado e o login
+falha** — defina-o antes deste passo:
 
 ```bash
 docker compose exec energyhub-api alembic upgrade head
 ```
 
-Portas: API **:8000** · Postgres **:5432** · Redis **:6379** · RabbitMQ **:5672** (UI **:15672**) ·
-Kafka **:9092** · Elasticsearch **:9200** · Prometheus **:9090** · Grafana **:3000** (credenciais via
-`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` do `.env` — sem default `admin/admin`) · Alertmanager
-**:9093**. O Prometheus scrapeia a API por nome de serviço (`energyhub-api:8000`).
+> Os 5 microsserviços têm **banco próprio** (`authdb`/`clientdb`/…), criados automaticamente no 1º boot
+> de um volume novo (via `scripts/postgres-initdb/`). Exercitá-los pelo gateway exige semear o admin
+> em `authdb` também — fora do escopo do quick-start; o caminho principal de teste é o monólito `:8000`.
+
+Portas: API **:8000** · Microsserviços **:8001–8005** (auth/client/contract/financial/audit) ·
+Traefik (gateway) **:80**, dashboard **:8090** · Consul **:8500** · Postgres **:5432** · Redis
+**:6379** · RabbitMQ **:5672** (UI **:15672**) · Kafka **:9092** · Elasticsearch **:9200** ·
+Prometheus **:9090** · Grafana **:3000** (credenciais via `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`
+do `.env` — sem default `admin/admin`) · Alertmanager **:9093**. O Prometheus scrapeia a API por nome
+de serviço (`energyhub-api:8000`).
 
 > 🔐 O `docker-compose.yml` **não contém credenciais** — todas vêm do `.env` (gitignored) e o Compose
 > se recusa a subir sem elas. Para produção, veja a seção [Segurança](#-segurança) e o
@@ -365,9 +371,20 @@ poetry run alembic downgrade base     # reverte tudo
 O _seed_ cria um usuário **`admin`** (papel `ADMIN`, com **todas** as permissões). Desde o
 endurecimento de segurança, **não há senha commitada**: a senha do admin vem do env de deploy
 (`ADMIN_PASSWORD` ou `ADMIN_PASSWORD_HASH`); se nenhum estiver definido, o admin **não é semeado**.
+Rodando o Alembic **no host**, a migração lê `ADMIN_PASSWORD` do **ambiente do processo** (não do
+`.env`, que só alimenta o objeto de settings) — então exporte antes de migrar:
+
+```bash
+# PowerShell
+$env:ADMIN_PASSWORD='<sua-senha-admin>'; poetry run alembic upgrade head
+# bash
+ADMIN_PASSWORD='<sua-senha-admin>' poetry run alembic upgrade head
+```
+
 Fora de `development`, a migração `0011` marca a conta para **rotação obrigatória** no primeiro uso.
-No Windows + Docker Desktop, se o driver não conectar do host, aplique o SQL dentro do container:
-`poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
+No Windows + Docker Desktop, se o driver não conectar do host, aplique o SQL dentro do container
+(exporte `ADMIN_PASSWORD` no mesmo comando para o seed sair no SQL gerado):
+`ADMIN_PASSWORD='<sua-senha-admin>' poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
 
 ### 6. Qualidade de código
 
@@ -442,6 +459,26 @@ poetry run pytest --no-cov        # para iterar sem o gate de cobertura
 > camada de integração roda **dentro de um container** na rede do compose (os testes marcados
 > `integration` são pulados automaticamente no host). Os testes unitários/componente rodam no host.
 
+**Rodar a camada de integração** (precisa de Docker) — dois caminhos independentes:
+
+```bash
+# A) Testcontainers — sobe/derruba o Postgres sozinho (só precisa do Docker):
+cd energyhub
+EH_ENABLE_TESTCONTAINERS=1 poetry run pytest -m integration
+#   PowerShell: $env:EH_ENABLE_TESTCONTAINERS=1; poetry run pytest -m integration
+
+# B) Infra de teste dedicada (docker-compose.test.yml — na RAIZ do repo — portas 5433/6380/5673):
+docker compose -f docker-compose.test.yml up -d
+cd energyhub
+EH_TEST_DATABASE_URL=postgresql+asyncpg://energyhub:eh_test_pw@localhost:5433/energyhub_test poetry run pytest
+```
+
+O teste de repositório é habilitado por `EH_TEST_DATABASE_URL` **ou** `EH_ENABLE_TESTCONTAINERS=1`; o
+teste de API usa o `DATABASE_URL` padrão do `conftest` (mesmas credenciais/porta 5433). No **Windows**,
+como o host não alcança o Postgres em container, rode o `pytest` **dentro** de um container na rede do
+compose (ex.: `docker compose exec energyhub-api ...`) apontando `DATABASE_URL`/`EH_TEST_DATABASE_URL`
+para o hostname do Postgres na rede.
+
 ---
 
 ## 🗺️ Roadmap
@@ -479,7 +516,7 @@ Este projeto adota o fluxo **_spec-driven_** do [OpenSpec](openspec/): antes de 
 cada mudança é descrita como uma _change_ em [`openspec/changes/`](openspec/changes/) contendo:
 
 ```
-implement-fase-N/
+changes/archive/<data>-implement-fase-N/   # concluídas ficam em changes/archive/
 ├── proposal.md    # Por quê · O que muda · Capacidades · Impacto
 ├── design.md      # Contexto · Decisões · Riscos · Trade-offs
 ├── tasks.md       # Checklist de implementação
@@ -499,7 +536,7 @@ Isso mantém escopo, design e requisitos versionados e revisáveis **antes** de 
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Guia da arquitetura base: classes-base do `shared` e regra de dependência |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Plano de evolução detalhado das 18 fases |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | Histórico de versões (Keep a Changelog + SemVer) |
-| [openspec/changes/](openspec/changes/) | Especificações _spec-driven_ completas |
+| [openspec/changes/archive/](openspec/changes/archive/) | Especificações _spec-driven_ completas (todas arquivadas) |
 
 ---
 

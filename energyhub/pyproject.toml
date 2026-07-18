@@ -32,6 +32,9 @@ dependencies = [
 ]
 
 [tool.poetry]
+# Poetry < 2.1 ignora o grupo `dev` em [dependency-groups] (PEP 735) e instalaria zero ferramentas
+# de dev silenciosamente; aborta o `poetry install` em versões antigas em vez de falhar depois.
+requires-poetry = ">=2.1"
 packages = [{include = "energyhub", from = "src"}]
 
 [build-system]

@@ -92,10 +92,17 @@ kind create cluster --name energyhub
 # instalar NGINX Ingress + Metrics Server manualmente (ver docs de cada projeto)
 ```
 
-### 2) Carregar as imagens locais no cluster
+### 2) Construir e carregar as imagens locais no cluster
 
 As imagens dos serviços são locais (sem registry), por isso os Deployments usam
-`imagePullPolicy: IfNotPresent`. Carregue-as no cluster:
+`imagePullPolicy: IfNotPresent`. Primeiro **construa-as** (elas nascem do `docker compose` da Fase 14 —
+nomes `energyhub-<svc>-service:latest`):
+
+```bash
+docker compose build auth-service client-service contract-service financial-service audit-service
+```
+
+Depois carregue-as no cluster:
 
 ```bash
 # minikube
@@ -116,11 +123,17 @@ O `Secret` sensível não vive mais em `k8s/secret.yaml`. Antes de aplicar a pla
 **fora da base Kustomize** (o `apply -k` não o inclui), então este passo é explícito:
 
 ```bash
-# Padrão — Sealed Secrets (o controlador expande o SealedSecret cifrado em energyhub-secret):
-kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml
+# Namespace primeiro — o Secret é namespaced (energyhub); aplicá-lo antes falha com "namespace not found":
+kubectl apply -f k8s/base/namespace.yaml
 
-# — ou alternativa — External Secrets Operator (materializa a partir do Vault):
-kubectl apply -f k8s/secrets/energyhub-externalsecret.example.yaml
+# Padrão — Sealed Secrets. Atenção: energyhub-sealedsecret.yaml NÃO existe num clone novo — é a saída
+# do kubeseal. Antes deste apply: instale o controlador (secrets/sealed-secrets-controller.md),
+# preencha o *.local.yaml e rode `bash k8s/secrets/seal-secrets.sh` (passo a passo em secrets/README.md §A):
+bash k8s/secrets/seal-secrets.sh                              # gera k8s/secrets/energyhub-sealedsecret.yaml
+kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml     # o controlador o expande em energyhub-secret
+
+# — ou alternativa — External Secrets Operator (materializa a partir do Vault; precisa do ESO + Vault):
+# kubectl apply -f k8s/secrets/energyhub-externalsecret.example.yaml
 
 kubectl get secret energyhub-secret -n energyhub   # confirmar que foi criado
 ```
@@ -128,7 +141,7 @@ kubectl get secret energyhub-secret -n energyhub   # confirmar que foi criado
 ### 4) Aplicar os manifestos (via Kustomize)
 
 ```bash
-kubectl apply -f k8s/base/namespace.yaml  # namespace primeiro (o Secret do passo 3 exige ele)
+# (o namespace já foi criado no passo 3, antes do Secret; este apply é idempotente)
 kubectl apply -k k8s/overlays/dev         # renderiza a base + patches de dev e aplica (idempotente)
 kubectl get pods -n energyhub -w          # aguardar todos Running/ready
 
@@ -143,13 +156,27 @@ kubectl kustomize k8s/overlays/dev
 
 ### 5) Seed do admin (pós-deploy)
 
-O 1º usuário não pode nascer pela API protegida e as tabelas só existem após cada serviço rodar
-`metadata.create_all`. Após o `auth-service` ficar **ready**, insira o admin em `authdb`
-(idempotente; mesma hash bcrypt de `ChangeMe123!` da Fase 15):
+O 1º usuário não pode nascer pela API protegida, e as tabelas só existem após o `auth-service` rodar
+`metadata.create_all`. O seed completo (3 papéis, catálogo de permissões e o vínculo do admin) é
+definido pelas **migrações Alembic do monólito `0008`–`0011`**
+([`../energyhub/alembic/versions/`](../energyhub/alembic/versions/)) — a **fonte da verdade** do schema de
+`auth`. Por política de segurança **nenhum hash de senha é commitado**, então não há INSERT pronto aqui.
+
+Ainda **não há um `Job` de seed** no `k8s/base/` (pendência conhecida) — o passo é manual. Gere o hash a
+partir da **sua** `ADMIN_PASSWORD` e aplique o seed em `authdb` após o `auth-service` ficar **ready**:
 
 ```bash
-kubectl exec -n energyhub deploy/postgres -- \
-  psql -U energyhub -d authdb -c "<INSERT do admin/roles — ver docs/ARCHITECTURE.md §9.4 (Seed e verificação)>"
+# 1) hash bcrypt (custo 12) a partir da SUA senha — nunca commitar:
+HASH=$(ADMIN_PASSWORD='<sua-senha-admin>' python -c \
+  "import bcrypt,os;print(bcrypt.hashpw(os.environ['ADMIN_PASSWORD'].encode()[:72],bcrypt.gensalt(12)).decode())")
+
+# 2) insira o admin com o $HASH (ajuste ao schema de auth). O vínculo ao papel ADMIN e o catálogo de
+#    permissões vêm das migrações 0008/0009 — a forma robusta é rodar essas migrações contra authdb:
+kubectl exec -n energyhub -i deploy/postgres -- psql -U energyhub -d authdb <<SQL
+INSERT INTO users (id, username, password, email, full_name, active)
+VALUES (gen_random_uuid(), 'admin', '$HASH', 'admin@energyhub.local', 'Administrador', true)
+ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password;
+SQL
 ```
 
 ---

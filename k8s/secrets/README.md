@@ -81,7 +81,8 @@ para commitar.
 # 2. Selar o Secret preenchido → gera k8s/secrets/energyhub-sealedsecret.yaml:
 bash k8s/secrets/seal-secrets.sh
 
-# 3. Aplicar o SealedSecret cifrado (o controlador o expande em energyhub-secret):
+# 3. Criar o namespace (o SealedSecret é namespaced) e aplicar o cifrado (o controlador o expande):
+kubectl apply -f k8s/base/namespace.yaml
 kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml
 kubectl get secret energyhub-secret -n energyhub   # criado pelo controlador
 
