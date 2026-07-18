@@ -20,7 +20,7 @@ consomem.
 | :------ | :--------- | :---- |
 | `energyhub-secret.local.example.yaml` | ✅ sim | Template UNSEALED (`kind: Secret`) com placeholders `REPLACE_ME_*`. Ponto de partida do operador. |
 | `energyhub-secret.local.yaml` | ❌ **NÃO** (gitignored) | Cópia do template acima **preenchida com valores reais**. Insumo do `kubeseal`. Nunca é commitada. |
-| `energyhub-sealedsecret.yaml` | ✅ sim | Saída cifrada do `kubeseal` — este é o artefato que vai para o cluster (default). |
+| `energyhub-sealedsecret.yaml` | ✅ sim *(após rodar `seal-secrets.sh`)* | Saída cifrada do `kubeseal` — este é o artefato que vai para o cluster (default). |
 | `seal-secrets.sh` | ✅ sim | Roda `kubeseal` sobre o `.local.yaml` e gera o `energyhub-sealedsecret.yaml`. |
 | `energyhub-externalsecret.example.yaml` | ✅ sim | Alternativa: `SecretStore` (Vault) + `ExternalSecret` que materializa `energyhub-secret`. |
 | `sealed-secrets-controller.md` | ✅ sim | Versão fixada e comando de instalação do controlador Sealed Secrets. |
@@ -85,8 +85,8 @@ bash k8s/secrets/seal-secrets.sh
 kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml
 kubectl get secret energyhub-secret -n energyhub   # criado pelo controlador
 
-# 4. Aplicar o restante da plataforma normalmente:
-kubectl apply -f k8s/
+# 4. Aplicar o restante da plataforma (via Kustomize — os manifestos vivem sob k8s/base/):
+kubectl apply -k k8s/overlays/dev      # ou k8s/overlays/prod
 ```
 
 > O `SealedSecret` é fixado a `namespace + name` (escopo `strict`, padrão). Ele só decifra como
@@ -106,7 +106,8 @@ sincronizado (`refreshInterval`). Nada sensível — nem cifrado — fica no rep
 
 # Popular o Vault (KV v2) com os mesmos valores gerados acima, ex.:
 vault kv put secret/energyhub/platform \
-  SECRET_KEY="..." INTERNAL_API_KEY="..." POSTGRES_PASSWORD="..." RABBITMQ_PASSWORD="..." \
+  SECRET_KEY="..." INTERNAL_API_KEY="..." TRAEFIK_DASHBOARD_USERS="energyhub:<hash>" \
+  POSTGRES_PASSWORD="..." RABBITMQ_PASSWORD="..." \
   AUTH_DATABASE_URL="..." CLIENT_DATABASE_URL="..." CONTRACT_DATABASE_URL="..." \
   FINANCIAL_DATABASE_URL="..." AUDIT_DATABASE_URL="..." RABBITMQ_URL="..."
 

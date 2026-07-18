@@ -126,7 +126,7 @@ versionado nem em log — todos vivem só como *repository secret*.
 
 Este registro é uma **atestação pontual**, escopada aos commits citados — não uma alegação de verde
 perpétuo. O **verde contínuo** dali para frente é garantido pela **branch protection** aplicada em
-`master` (`harden-cicd-supply-chain`), que **exige** os checks `Build` e `test` passando antes de
+`master` (`harden-cicd-supply-chain`), que **exige** os checks `build` e `test` passando antes de
 qualquer merge. Ver [`docs/ci-cd.md`](./ci-cd.md#supply-chain) para a esteira e o endurecimento.
 
 <sub>Registro da change OpenSpec <code>validate-pipeline-live</code> · fluxo <em>spec-driven</em>.</sub>

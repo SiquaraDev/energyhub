@@ -21,15 +21,16 @@ produção** que aborta o boot com credenciais placeholder.
 | **Senha Postgres** | Autenticação do banco (embutida nas `*_DATABASE_URL`) | `openssl rand -base64 24` | `.env` → `POSTGRES_PASSWORD` | Secret chave `POSTGRES_PASSWORD` + as `*_DATABASE_URL` |
 | **Senha RabbitMQ** | Autenticação da mensageria (embutida em `RABBITMQ_URL`) | `openssl rand -base64 24` | `.env` → `RABBITMQ_PASSWORD` | Secret chave `RABBITMQ_PASSWORD` + `RABBITMQ_URL` |
 | **`INTERNAL_API_KEY`** | Credencial inter-serviço das rotas `/internal/*` (header `X-Internal-Api-Key`) | `openssl rand -hex 32` | `.env` → `INTERNAL_API_KEY` | Secret chave `INTERNAL_API_KEY` |
+| **Dashboard do Traefik** | Basic-auth do dashboard (`usuario:hash`, montado em `/etc/traefik-auth/users`) | `openssl passwd -apr1 '<senha>'` → `energyhub:<hash>` | — (k8s) | Secret chave `TRAEFIK_DASHBOARD_USERS` — **sem ela o pod do Traefik não sobe** |
 
 > **Convenção de geração.** Chaves/tokens de alta entropia hexadecimais: `openssl rand -hex 32`
 > (`SECRET_KEY`, `INTERNAL_API_KEY`). Senhas: `openssl rand -base64 24`. Cada credencial é
 > **independente** — nunca reutilize uma única string entre `SECRET_KEY`, Postgres e RabbitMQ.
 
 O `Secret` do Kubernetes se chama **`energyhub-secret`** (`type: Opaque`, namespace `energyhub`) e
-carrega as chaves: `SECRET_KEY`, `POSTGRES_PASSWORD`, `RABBITMQ_PASSWORD`, `AUTH_DATABASE_URL`,
-`CLIENT_DATABASE_URL`, `CONTRACT_DATABASE_URL`, `FINANCIAL_DATABASE_URL`, `AUDIT_DATABASE_URL`,
-`RABBITMQ_URL` e `INTERNAL_API_KEY`.
+carrega as chaves: `SECRET_KEY`, `INTERNAL_API_KEY`, `TRAEFIK_DASHBOARD_USERS`, `POSTGRES_PASSWORD`,
+`RABBITMQ_PASSWORD`, `AUTH_DATABASE_URL`, `CLIENT_DATABASE_URL`, `CONTRACT_DATABASE_URL`,
+`FINANCIAL_DATABASE_URL`, `AUDIT_DATABASE_URL` e `RABBITMQ_URL`.
 
 ---
 
@@ -52,7 +53,9 @@ Cada procedimento segue o mesmo padrão: **(1) gerar** o valor novo → **(2) de
    - _Kubernetes:_ atualize a chave `SECRET_KEY` no `Secret` desselado e **re-sele** (ver
      [Fluxo Sealed/External Secrets](#-fluxo-sealed-secrets--external-secrets)).
 3. **Rolar (todos de uma vez):**
-   - _Compose:_ `docker compose up -d --force-recreate auth-service client-service contract-service financial-service audit-service`
+   - _Compose:_ `docker compose up -d --force-recreate energyhub-api auth-service client-service contract-service financial-service audit-service`
+     — inclui o **`energyhub-api`** (fachada monólito, que também embute `SECRET_KEY`/`DATABASE_URL`/`RABBITMQ_URL`);
+     omiti-lo deixa o monólito com a credencial antiga. Vale o mesmo para as rotações de Postgres e RabbitMQ abaixo.
    - _Kubernetes:_
      ```bash
      for s in auth client contract financial audit; do
@@ -73,8 +76,9 @@ adiciona a coluna `require_password_rotation` e, **fora do perfil `development`*
 1. **Gerar:** `openssl rand -base64 24` (senha em texto) — ou pré-compute o hash bcrypt e use
    `ADMIN_PASSWORD_HASH`.
 2. **Definir** (variável de ambiente **do deploy da migração**, não de runtime do app):
-   - _Compose/local:_ `ADMIN_PASSWORD` no `.env`; mantenha `ADMIN_REQUIRE_PASSWORD_ROTATION=true`
-     fora de dev.
+   - _Compose/local:_ `ADMIN_PASSWORD` no `.env`. A rotação-no-primeiro-uso é dirigida por
+     **`ENVIRONMENT`** (a migração `0011` só marca `require_password_rotation` fora de `development`) —
+     **não** por `ADMIN_REQUIRE_PASSWORD_ROTATION`, que nenhum código lê (var vestigial no `.env.example`).
    - _Kubernetes:_ exporte `ADMIN_PASSWORD` (ou `ADMIN_PASSWORD_HASH`) e `ENVIRONMENT` no ambiente
      onde a migração `alembic upgrade head` roda (job/pod de migração), **não** no Secret de runtime.
 3. **Rotação de uma conta já existente** (não é um re-seed): faça login e troque a senha pela API
@@ -123,7 +127,8 @@ no servidor** e **atualizar todas as URLs**.
 
 ### 🐰 Senha do RabbitMQ
 
-Embutida em `RABBITMQ_URL` (usada por auth/client/audit).
+Embutida em `RABBITMQ_URL`. Desde `fix-microservices-gaps`, **os 5 serviços** usam RabbitMQ —
+auth/client/contract/financial publicam eventos de auditoria e o audit consome.
 
 1. **Gerar:** `openssl rand -base64 24`.
 2. **Trocar no broker** (usuário já criado não relê `RABBITMQ_DEFAULT_PASS`):
@@ -134,7 +139,7 @@ Embutida em `RABBITMQ_URL` (usada por auth/client/audit).
 3. **Definir:**
    - _Compose:_ `RABBITMQ_PASSWORD` no `.env`.
    - _Kubernetes:_ atualize `RABBITMQ_PASSWORD` **e** `RABBITMQ_URL` no Secret desselado e **re-sele**.
-4. **Rolar:** os serviços consumidores (auth, client, audit; role os 5 por segurança).
+4. **Rolar:** os **5 serviços** (todos usam RabbitMQ — publicam eventos de auditoria / consomem).
 
 ### 🔗 `INTERNAL_API_KEY` (credencial inter-serviço)
 
@@ -161,25 +166,30 @@ controlador materializa o `energyhub-secret` real dentro do cluster. Os consumid
 
 ### Opção A — Sealed Secrets (padrão) 🔒
 
-```bash
-# 1) Gerar os valores frescos (ver seções acima) e preencher o Secret DESSELADO (nunca commitado).
-#    Template/base em k8s/secrets/ — kind: Secret, name: energyhub-secret, type: Opaque, namespace: energyhub.
-#    Edite uma cópia local (ex.: /tmp/energyhub-secret.unsealed.yaml) com stringData completo.
+O repositório já traz o ferramental — prefira-o ao `kubeseal` na mão (ver
+[`k8s/secrets/README.md`](../k8s/secrets/README.md) e [`sealed-secrets-controller.md`](../k8s/secrets/sealed-secrets-controller.md)):
 
-# 2) Selar com kubeseal (usa a chave PÚBLICA do controlador no cluster) → artefato commitável.
-kubeseal --controller-namespace kube-system --format yaml \
-  < /tmp/energyhub-secret.unsealed.yaml \
-  > k8s/secrets/energyhub-sealedsecret.yaml
+```bash
+# 1) Preencher o Secret DESSELADO (nunca commitado) a partir do template versionado:
+cp k8s/secrets/energyhub-secret.local.example.yaml k8s/secrets/energyhub-secret.local.yaml
+#    edite k8s/secrets/energyhub-secret.local.yaml trocando cada REPLACE_ME_* pelos valores frescos
+#    (o .local.yaml é gitignored).
+
+# 2) Selar → gera k8s/secrets/energyhub-sealedsecret.yaml (commitável). O script recusa selar
+#    enquanto restar algum REPLACE_ME e usa --controller-name sealed-secrets-controller + --scope strict.
+bash k8s/secrets/seal-secrets.sh
 
 # 3) Aplicar o SealedSecret (isto SIM vai ao git — só o controlador consegue decriptar).
 kubectl apply -f k8s/secrets/energyhub-sealedsecret.yaml
 
 # 4) O controlador materializa o Secret `energyhub-secret` no namespace energyhub.
 kubectl get secret energyhub-secret -n energyhub
-
-# 5) Descartar o arquivo desselado local (shred).
-shred -u /tmp/energyhub-secret.unsealed.yaml
 ```
+
+> _Fallback manual_ (sem o script): edite uma cópia local e sele com
+> `kubeseal --controller-name sealed-secrets-controller --format yaml < cópia.yaml > k8s/secrets/energyhub-sealedsecret.yaml`,
+> depois **`shred -u`** a cópia. Não use `--controller-namespace kube-system` sozinho — o `kubeseal`
+> procura o serviço pelo **nome** `sealed-secrets-controller`.
 
 O `SealedSecret` é cifrado **assimetricamente** e amarrado ao _scope_ `name`+`namespace`
 (`energyhub-secret`/`energyhub`) — só o controlador daquele cluster o decripta. Para **rotacionar**

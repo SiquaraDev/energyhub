@@ -1,11 +1,13 @@
-# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–15)
+# ⚡ EnergyHub — Arquitetura Base (as-built · Fases 2–17)
 
 Este documento descreve a arquitetura **como construída** (_as-built_) do EnergyHub ao final das
-**Fases 2 a 15 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
+**Fases 2 a 17 — Clean Architecture, Classes Base, Modelo de Domínio (DDD), Schema do Banco,
 Persistência, API REST, Segurança (JWT/RBAC), Documentação/Erros da API, Cache Redis, Mensageria
 (RabbitMQ & Kafka), Busca (Elasticsearch), Observabilidade (Prometheus/Grafana), a Suíte de Testes
-com _quality gate_ de cobertura, a Containerização (Docker/Compose) e a Decomposição em
-Microsserviços (Consul/Traefik)** (versão `0.15.0`). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
+com _quality gate_ de cobertura, a Containerização (Docker/Compose), a Decomposição em
+Microsserviços (Consul/Traefik), a Orquestração com Kubernetes (§21) e a Automação CI/CD (§22)** —
+marco `1.0.0`, mais o ciclo de endurecimento pós-`1.0.0` (Kustomize/KRaft/PVCs, guarda de produção,
+TLS, NetworkPolicies e supply-chain do CI/CD). Enquanto o [documento de arquitetura da Fase 0](./fase-0/07-arquitetura.md)
 define _como o código **deveria** se organizar_ (arquitetura planejada), este artefato registra _o que
 **de fato** existe no repositório_: o esqueleto completo de **9 módulos × 4 camadas**, as
 **classes-base** já implementadas em `shared`, o **modelo de domínio** (entidades, _value objects_,
@@ -1096,9 +1098,10 @@ FK**, pois a tabela dona vive noutro serviço/banco. O kernel `shared/` e o mód
 **copiados** (extração fiel), não referenciados.
 
 **Service discovery (Consul).** `energyhub/discovery.py::register_with_consul` registra o serviço no
-startup (nome lógico + `service_id = {name}-{port}` + endereço/porta + **health check HTTP** contra
-`/health`) e desregistra no shutdown — via **API HTTP do Consul** (`httpx`). Callers e o gateway
-resolvem dependências por **nome**, não por host/porta fixos.
+startup (nome lógico + `service_id = {name}-{instance_id}` — `HOSTNAME` do pod, ou `uuid4` por processo
+fora do k8s, **único por réplica** — + endereço/porta + **health check HTTP** contra `/health`) e
+desregistra a **própria** instância no shutdown — via **API HTTP do Consul** (`httpx`). Callers e o
+gateway resolvem dependências por **nome**, não por host/porta fixos.
 
 **Comunicação entre serviços (`httpx`).** Cada dependência upstream tem um cliente dedicado
 (`AuthClient`/`ClientClient`/`ContractClient`) sobre uma base comum `ServiceClient`. A substituição
@@ -1142,13 +1145,18 @@ documentos via `kubectl kustomize k8s/overlays/<env>`):
 | :----- | :------- |
 | Microsserviços | `Deployment` + `Service` (ClusterIP) + `HPA` — auth/client/contract/financial/audit |
 | Gateway/discovery | `traefik` + `traefik-service` (**LoadBalancer**), `consul` + `consul-service` |
-| Borda | `Ingress` (classe `nginx`) `energyhub.local` → `traefik-service:80` |
+| Borda | `Ingress` (classe `nginx`) `energyhub.local` → `traefik-service:80`, com **TLS terminado via cert-manager** (Secret `energyhub-tls`, `force-ssl-redirect`) |
 | Backends stateful | `postgres` (+ initdb dos 5 bancos), `redis`, `rabbitmq` — todos **PVC-backed**; `kafka` = **StatefulSet KRaft** (sem Zookeeper) |
-| Config | `energyhub-config` + `<svc>-config` (ConfigMaps) + `energyhub-secret` (Secret) |
+| Segurança _(pós-`1.0.0`)_ | **NetworkPolicies** _default-deny_ + _allow_ de menor privilégio; `ServiceAccount` `energyhub-sa` + `ghcr-pull-secret` (pull autenticado do GHCR) |
+| Config | `energyhub-config` + `<svc>-config` (ConfigMaps) + `energyhub-secret` (resolvido no cluster por SealedSecret/ExternalSecret) |
 
 **Config × Secret.** Valores não sensíveis (ambiente, Consul, porta, `SERVICE_HOST`, Redis/Kafka)
 em **ConfigMaps** (injetados por `envFrom` + montados como volume); `SECRET_KEY`, senhas e as
-`*_DATABASE_URL`/`RABBITMQ_URL` (que embutem a senha) num **Secret** (`valueFrom.secretKeyRef`).
+`*_DATABASE_URL`/`RABBITMQ_URL` (que embutem a senha) num **Secret** (`valueFrom.secretKeyRef`). Desde
+o endurecimento, o `energyhub-secret` **não é um manifesto em texto puro**: ele é resolvido **dentro
+do cluster** por um **SealedSecret** (cifrado) ou **ExternalSecret** (Vault) — ver
+[`k8s/secrets/`](../k8s/secrets/README.md). NetworkPolicies _default-deny_ isolam o namespace
+(cada serviço só recebe do que precisa), e a borda termina **TLS** via cert-manager.
 
 **Deployments.** `replicas: 2`, `resources.requests/limits` (CPU/memória), `liveness`/`readiness`
 contra `/health` (self-healing: readiness porteia o tráfego, liveness recria o pod travado). DNS do
@@ -1181,13 +1189,14 @@ produção, alternativamente troque para managed stores externos ajustando **só
 >   16 bytes em base64url (o `kafka-storage format` o exige). Tópicos com `auto-create` off devem ser
 >   criados (ex.: `contract-events`).
 >
-> **Limitação herdada da Fase 15 (fora do escopo da orquestração):** `register_with_consul` usa
-> `service_id = {name}-{port}` — **não único por réplica**. Com `replicas > 1` + rotatividade de
-> pods (rollout/scale-in), o shutdown de uma réplica desregistra o ID compartilhado e some com o
-> serviço no Consul. Correção adequada (ID único por pod, ex.: `+hostname`) é **mudança de imagem**,
-> deferida. A trilha de **auditoria** também não é auto-populada: nenhum produtor publica na fila
-> `audit` no topología de eventos da Fase 15 (o `audit-service` está implantado e consumindo, mas a
-> fila não recebe eventos de negócio) — igualmente uma pendência de app, independente do k8s.
+> **Duas limitações herdadas da Fase 15 — ambas CORRIGIDAS em `fix-microservices-gaps` (pós-`1.0.0`):**
+> (1) o `service_id` era `{name}-{port}` (não único por réplica), então o shutdown de uma réplica
+> desregistrava o ID compartilhado e sumia com o serviço no Consul — agora é `{name}-{instance_id}`
+> (`HOSTNAME` do pod/`uuid4`), único por réplica, com _deregister_ da própria instância. (2) A trilha
+> de **auditoria** não era auto-populada — hoje um `AuditEventProducer` publica na fila `audit` em
+> **todo** create/update/delete dos serviços, e o `AuditConsumer` persiste (também foi corrigido um bug
+> pré-existente em que o consumidor nunca ficava assinado). Validado ao vivo (2 réplicas com IDs
+> distintos; trilha e2e em `audit_logs`).
 
 **Validação e2e (no cluster).** Login → criar cliente → criar contrato **pelo gateway**
 (`ingress → Traefik → Consul-catalog → serviço`, com `forwardAuth` no `auth-service`) retornaram
@@ -1211,11 +1220,14 @@ não código de aplicação; consome o projeto Poetry (Fase 1), os testes (Fase 
 | `ci-cd.yml` | esteira `build-and-test → build-and-push → deploy` (`needs`), deploy validado em **kind efêmero** |
 
 **Decisões-chave.** Registry **GHCR** (grátis, `GITHUB_TOKEN`; Docker Hub/ECR como alternativa por
-config); imagens com tag **imutável por SHA** + `latest`; deploy com **pin por SHA** (rastreável,
-sem editar `k8s/`) e **auto-rollback** (`rollout undo`) na falha do _rollout_; secrets opcionais
-(`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`/`CODECOV_TOKEN`) fazem o pipeline **degradar sem quebrar** (o
-deploy real é pulado sem cluster). A validação _live_ de deploy roda **grátis num kind efêmero** no
-runner (aplica `k8s/`, aguarda o subconjunto core e faz um _drill_ de rollback) — sem cluster 24/7.
+config); imagens com tag **imutável por SHA** + `latest`; deploy **declarativo via Kustomize** — o SHA
+é injetado no `images:` transformer e aplicado com `kubectl apply -k k8s/overlays/prod` (sem
+`kubectl set image`; ver §21 e `k8s-production-robustness`) — com **auto-rollback** (`rollout undo`) na
+falha do _rollout_; secrets opcionais (`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`/`CODECOV_TOKEN`) fazem o
+pipeline **degradar sem quebrar** (o deploy real é pulado sem cluster). A validação _live_ de deploy
+roda **grátis num kind efêmero** no runner (aplica `kubectl apply -k k8s/overlays/dev`, aguarda o
+subconjunto core e faz um _drill_ de rollback) — sem cluster 24/7. Registro datado da esteira verde ao
+vivo em [`pipeline-validation.md`](./pipeline-validation.md).
 
 > **Reconciliações (spec → realidade).** Gateway = **Traefik** (imagem oficial, não construída) → a
 > matrix cobre os 5 serviços; **`8398a7/action-slack` arquivado** → `slackapi/slack-github-action@v2`;

@@ -69,7 +69,7 @@ _registry-backed_: `cache-from/to: type=registry,ref=ghcr.io/<owner>/energyhub-<
 
 1. **Gate:** um job lê `KUBE_CONFIG` (via env — secrets não podem ir em `if:`) e emite `has_kubeconfig`.
    Sem o secret, o job `deploy` é **pulado limpo**.
-2. **`kubectl` do secret** (`azure/k8s-set-context@v4`, method `kubeconfig`).
+2. **`kubectl` do secret** (`Azure/k8s-set-context@v5`, method `kubeconfig`).
 3. **Preflight do `energyhub-secret`:** ele **não é versionado** (`harden-security-credentials`); num
    cluster real vem do **SealedSecret/ExternalSecret** ([`k8s/secrets/`](../k8s/secrets/README.md)),
    aplicado **fora** desta esteira. O preflight falha na hora com erro explícito se ele faltar.
@@ -202,7 +202,7 @@ resolvem, e um probe dedicado impede o falso-positivo:
 
 - [`k8s/base/serviceaccount.yaml`](../k8s/base/serviceaccount.yaml) — SA `energyhub-sa` referenciando o
   `ghcr-pull-secret`; os 5 Deployments apontam para ele (um ponto de verdade, não 5 cópias).
-- [`k8s/secrets/create-ghcr-pull-secret.sh`](../k8s/secrets/README.md) — cria o Secret a partir de um
+- [`k8s/secrets/create-ghcr-pull-secret.sh`](../k8s/secrets/create-ghcr-pull-secret.sh) — cria o Secret a partir de um
   PAT `read:packages` (nunca versionado). No CI, do `GITHUB_TOKEN` **efêmero** do run.
 - **`Verify GHCR pull secret pulls a PRIVATE image`** (em `ci-cd.yml`) — sobe um pod que referencia a
   imagem pelo nome **remoto** com `imagePullPolicy: Always`, forçando um pull autenticado real.

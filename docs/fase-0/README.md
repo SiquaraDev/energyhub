@@ -5,7 +5,7 @@ Esta fase estabelece o escopo, os requisitos, o modelo de domínio e a arquitetu
 todas as fases seguintes (ver [ROADMAP](../ROADMAP.md)).
 
 > Todos os documentos são **spec-driven** e derivam da _change_
-> [`openspec/changes/implement-fase-0`](../../openspec/changes/implement-fase-0/).
+> [`openspec/changes/archive/2026-07-11-implement-fase-0`](../../openspec/changes/archive/2026-07-11-implement-fase-0/).
 > Os diagramas usam **Mermaid** (versionável junto ao Markdown) e foram validados no _parser_ Mermaid v11.
 
 ---

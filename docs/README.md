@@ -15,7 +15,7 @@
 | :-------- | :------------------ |
 | 📄 **[README principal](../README.md)** | Visão geral, arquitetura, modelo de domínio, stack e guia de _getting started_ |
 | 🧱 **[fase-0/](./fase-0/README.md)** | Artefatos de **planejamento e design** (Fase 0): escopo, requisitos, casos de uso, DER, UML, eventos de negócio e arquitetura |
-| 🏗️ **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Guia da arquitetura como-construída (Clean Architecture, classes-base, domínio, schema do banco, persistência, API REST, segurança JWT/RBAC, documentação/erros da API, cache Redis, mensageria RabbitMQ/Kafka, busca Elasticsearch, observabilidade Prometheus/Grafana, estratégia de testes, containerização Docker/Compose, decomposição em microsserviços e orquestração com Kubernetes — Fases 2–16) |
+| 🏗️ **[ARCHITECTURE.md](./ARCHITECTURE.md)** | Guia da arquitetura como-construída (Clean Architecture, classes-base, domínio, schema do banco, persistência, API REST, segurança JWT/RBAC, documentação/erros da API, cache Redis, mensageria RabbitMQ/Kafka, busca Elasticsearch, observabilidade Prometheus/Grafana, estratégia de testes, containerização Docker/Compose, decomposição em microsserviços, orquestração com Kubernetes e CI/CD — Fases 2–17) |
 | 🧩 **[bounded-contexts.md](./bounded-contexts.md)** | Decomposição em microsserviços (Fase 15): inventário módulo→contexto→serviço, grafo de dependências (DAG), ordem de extração e regras (banco por serviço, HTTP + discovery + gateway) |
 | ☸️ **[k8s/README.md](../k8s/README.md)** | Orquestração com Kubernetes (Fase 16): árvore de manifestos `k8s/`, modelo ConfigMap×Secret, backends in-cluster, procedimento de subida (minikube), validação e notas de produção |
 | 🔁 **[ci-cd.md](./ci-cd.md)** | Automação CI/CD (Fase 17): os 5 workflows GitHub Actions, secrets necessários, registry GHCR, fluxo de deploy/rollback e a validação em kind efêmero |
@@ -25,7 +25,7 @@
 | 🧪 **[API_EXAMPLES.md](./API_EXAMPLES.md)** | Exemplos `curl` dos fluxos principais (login → CRUD de clientes) com o cabeçalho `Authorization: Bearer` |
 | 🗺️ **[ROADMAP.md](./ROADMAP.md)** | Plano de evolução detalhado das **18 fases**, agrupadas em 7 etapas, com objetivos, entregáveis, decisões-chave e mapa de dependências |
 | 📜 **[CHANGELOG.md](./CHANGELOG.md)** | Histórico de versões planejadas (fase → versão, `0.1.0` → `1.0.0`) no formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) + [SemVer](https://semver.org/lang/pt-BR/) |
-| 📋 **[openspec/changes/](../openspec/changes/)** | Especificações _spec-driven_ completas: `proposal.md`, `design.md`, `tasks.md` e _specs_ por capacidade |
+| 📋 **[openspec/changes/archive/](../openspec/changes/archive/)** | Especificações _spec-driven_ completas (todas arquivadas): `proposal.md`, `design.md`, `tasks.md` e _specs_ por capacidade, sob `archive/<data>-<change>/` |
 
 ---
 

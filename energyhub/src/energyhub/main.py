@@ -225,7 +225,7 @@ def custom_openapi() -> dict[str, Any]:
     )
     schema["info"]["contact"] = {
         "name": "Equipe EnergyHub",
-        "url": "https://github.com/Matheus-Siquara/energyhub",
+        "url": "https://github.com/SiquaraDev/energyhub",
         "email": "contato@energyhub.example",
     }
     schema["info"]["license"] = {

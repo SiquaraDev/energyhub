@@ -28,8 +28,8 @@ e validação da esteira ao vivo) antes de qualquer uso não-local.
 > a `1.0.0`) — roadmap das fases completo, marco `1.0.0`; a implementação seguiu o **layout `src`**
 > (`src/energyhub/`). Em seguida, um ciclo de **endurecimento pós-`1.0.0`** adicionou **5 propostas
 > OpenSpec** cobrindo **segurança**, **correções dos microsserviços**, **supply-chain do CI/CD**,
-> **robustez do Kubernetes** e **validação da esteira ao vivo** — destas, **3 já foram aplicadas e
-> arquivadas** (segurança, microsserviços e supply-chain) e **2 seguem 📋 planejadas**. Consulte o
+> **robustez do Kubernetes** e **validação da esteira ao vivo** — **todas as 5 já foram aplicadas e
+> arquivadas**, sem _change_ ativa restante. Consulte o
 > [CHANGELOG](./CHANGELOG.md) para o mapeamento fase → versão e a
 > [Etapa 7](#etapa-7) para o estado de cada proposta.
 
@@ -49,7 +49,7 @@ As 18 fases estão agrupadas em **7 etapas** (0–6) que representam grandes mar
 | **4 · Escala & Operação** | 9–12 | Cache, mensageria, busca e observabilidade | `0.9.0` – `0.12.0` |
 | **5 · Qualidade & Empacotamento** | 13–14 | Testes automatizados e containerização | `0.13.0` – `0.14.0` |
 | **6 · Distribuição & Entrega** | 15–17 | Microsserviços, Kubernetes e CI/CD | `0.15.0` – `1.0.0` |
-| **7 · Endurecimento (pós-`1.0.0`)** | — | Segurança, correções de microsserviços, supply-chain, robustez k8s e validação da esteira | pós-`1.0.0` (3 ✅ / 2 📋) |
+| **7 · Endurecimento (pós-`1.0.0`)** | — | Segurança, correções de microsserviços, supply-chain, robustez k8s e validação da esteira | pós-`1.0.0` (5 ✅) |
 
 ```mermaid
 timeline
@@ -81,8 +81,8 @@ timeline
         Segurança (ok)    : Credenciais + secret manager + TLS
         Microsserviços (ok) : Consul service_id + produtor audit
         Supply-chain (ok) : Actions por SHA + branch protection
-        Robustez k8s      : Kustomize + Kafka KRaft + PVCs
-        Esteira ao vivo   : Pipeline verde no GitHub + evidências
+        Robustez k8s (ok) : Kustomize + Kafka KRaft + PVCs
+        Esteira ao vivo (ok) : Pipeline verde no GitHub + evidências
 ```
 
 ---
@@ -446,22 +446,25 @@ credenciais/`SECRET_KEY` a rotacionar antes de produção.
 > `fix-microservices-gaps` → `harden-cicd-supply-chain` → `k8s-production-robustness` →
 > `validate-pipeline-live`.
 >
-> **Progresso: 3 de 5 aplicadas e arquivadas.**
+> **Progresso: 5 de 5 aplicadas e arquivadas.** 🎉 Ciclo de endurecimento pós-`1.0.0` completo —
+> nenhuma _change_ ativa restante.
 
 | Proposta | Estado | Tarefas |
 | :------- | :----- | :------ |
 | 🛡️ `harden-security-credentials` | ✅ **Aplicada** · arquivada `2026-07-13` | 38/38 |
 | 🧩 `fix-microservices-gaps` | ✅ **Aplicada** · arquivada `2026-07-17` | 20/20 |
 | 🔗 `harden-cicd-supply-chain` | ✅ **Aplicada** · arquivada `2026-07-17` | 26/27 ¹ |
-| ☸️ `k8s-production-robustness` | 📋 Planejada | 0/25 |
-| 🚀 `validate-pipeline-live` | 📋 Planejada — **em boa parte já satisfeita** ² | 0/40 |
+| ☸️ `k8s-production-robustness` | ✅ **Aplicada** · arquivada `2026-07-17` | 22/25 ² |
+| 🚀 `validate-pipeline-live` | ✅ **Aplicada** (reduzida) · arquivada `2026-07-17` | 11/11 |
 
 > ¹ A tarefa em aberto é `5.5` (parcial): a matriz publica verde, mas *"um run superado é cancelado
 > por um push mais novo"* não chegou a ser observado — houve um único push, então nada foi superado.
 > O `concurrency` está declarado e validado; o cancelamento se prova no primeiro par de pushes em
 > sequência rápida.
 >
-> ² Ver a nota na seção da proposta, abaixo.
+> ² As 3 tarefas em aberto (`3.5`/`4.5`/`5.4`) exigem cluster vivo — prontidão do broker KRaft e
+> persistência de PVC. Validadas por schema (kubeconform) e diferidas ao deploy real (`deploy.yml`) /
+> minikube, como registrado no tasks.md arquivado.
 
 ### ✅ `harden-security-credentials` — Endurecimento de Segurança _(aplicada · 38 tarefas)_
 **Objetivo:** fechar os riscos de segurança que hoje bloqueiam qualquer _deploy_ não-local —
@@ -514,42 +517,40 @@ credenciais placeholder versionadas e superfícies de _dev_ abertas — **antes*
 > estouro só apareceria num cluster real. Um probe dedicado, que puxa a imagem privada pelo nome
 > **remoto** com `imagePullPolicy: Always`, fecha esse falso-positivo.
 
-### 📋 `k8s-production-robustness` — Robustez de Produção no Kubernetes _(planejada · 25 tarefas)_
-**Objetivo:** tornar o _deploy_ da Fase 16 robusto para produção — _pin_ de imagem imperativo,
-Kafka com Zookeeper e backends em `emptyDir`.
+### ✅ `k8s-production-robustness` — Robustez de Produção no Kubernetes _(aplicada · 22/25 tarefas)_
+**Objetivo:** tornar o _deploy_ da Fase 16 robusto para produção — que antes tinha _pin_ de imagem
+imperativo, Kafka com Zookeeper e backends em `emptyDir`.
 
 **Entregáveis (capacidades):**
 - `kustomize-image-pinning` _(nova)_ — transformer `images:` declarativo fixa cada imagem no _commit SHA_ (aposenta o `kubectl set image`)
 - `kustomize-environment-overlays` _(nova)_ — _base_ Kustomize + _overlays_ `dev`/`prod`
 - _(modificadas)_ `data-persistence-volumes` (emptyDir→PVC p/ Postgres+Kafka) · `messaging-and-streaming-containers` (Kafka `StatefulSet` em **KRaft**, sem Zookeeper) · `kubernetes-deploy-automation` (apply via _overlay_ Kustomize)
 
-### 📋 `validate-pipeline-live` — Validação da Esteira ao Vivo _(planejada · 40 tarefas)_
-**Objetivo:** provar a esteira da Fase 17 **verde de verdade** nos _runners_ do GitHub (até aqui só
-validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue continuamente".
+> **Entregue:** os 34 manifestos migrados para [`k8s/base/`](../k8s/base/) com o `images:` transformer;
+> _overlays_ [`dev`](../k8s/overlays/dev/) (imagens locais, réplica 1) e [`prod`](../k8s/overlays/prod/)
+> (`ghcr.io/…@<sha>`, `StorageClass` explícita, HPA 3/10). Kafka virou `StatefulSet` **KRaft** (sem
+> Zookeeper); Postgres/Redis/RabbitMQ em **PVC**; `ci-cd.yml` e `deploy.yml` migrados para
+> `kubectl apply -k`. Uma **revisão adversarial** pré-commit pegou 1 _blocker_ — `CLUSTER_ID` do KRaft
+> inválido (não decodificava p/ 16 bytes) → o broker _crashloopa_ —, corrigido antes do push. Validado
+> ao vivo no kind (o `apply -k` sobe; PVC do Postgres deu _bind_). As 3 tarefas em aberto exigem cluster
+> vivo (KRaft _ready_, persistência) — diferidas ao `deploy.yml`/minikube.
+
+### ✅ `validate-pipeline-live` — Validação da Esteira ao Vivo _(aplicada · reduzida a 11 tarefas)_
+**Objetivo:** provar a esteira da Fase 17 **verde de verdade** nos _runners_ do GitHub e deixar disso
+um registro durável.
 
 **Entregáveis (capacidades):**
-- `live-pipeline-execution` — 1º _run_ verde de Build/Test/Docker/CI-CD nos _runners_ hospedados
-- `ghcr-publication-verification` — 5 imagens em `ghcr.io/siquaradev/energyhub-<serviço>` com tags `:latest` + `:SHA`
-- `ephemeral-deploy-drill-validation` — _deploy_ em kind-in-CI + _dry-run_ + prontidão do core + _drill_ de rollback
-- `repository-secret-configuration` — configurar (ou confirmar degradação graciosa) de `CODECOV_TOKEN`/`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`
-- `pipeline-validation-record` — captura de evidências (URLs/logs), _fix-forward_ do 1º _run_ e registro datado
+- `pipeline-validation-record` — registro datado ([`docs/pipeline-validation.md`](./pipeline-validation.md)) da esteira verde ao vivo, com _links_ dos _runs_, publicação no GHCR, _drill_ de rollback e o catálogo de correções _fix-forward_
+- `repository-secret-configuration` — postura documentada dos secrets opcionais (verde só com `GITHUB_TOKEN`; degradação graciosa de `CODECOV_TOKEN`/`KUBE_CONFIG`/`SLACK_WEBHOOK_URL`)
 
-> ⚠️ **Esta proposta foi em boa parte ultrapassada pelos fatos.** Ela foi escrita quando a esteira só
-> tinha sido validada localmente — mas ao aplicar as duas propostas anteriores a esteira **rodou de
-> verdade** e passou a ser mantida verde. Hoje, na prática:
->
-> | Capacidade | Situação real |
-> | :--------- | :------------ |
-> | `live-pipeline-execution` | ✅ os 5 workflows verdes nos _runners_ hospedados |
-> | `ghcr-publication-verification` | ✅ as 5 imagens publicadas com `:latest` + `:SHA` (agora com provenance/SBOM) |
-> | `ephemeral-deploy-drill-validation` | ✅ kind-in-CI: _dry-run_ server-side → apply → core pronto → **drill de rollback** |
-> | `repository-secret-configuration` | 🟡 degradação graciosa **confirmada** (sem `KUBE_CONFIG`, `deploy` é pulado limpo); configurar os secrets segue pendente |
-> | `pipeline-validation-record` | 🟡 evidências existem espalhadas (runs, logs, `docs/ci-cd.md`); falta o registro datado consolidado |
->
-> Antes de aplicá-la, vale **repropô-la ou reduzi-la** ao que sobrou (os dois itens 🟡) — rodar as 40
-> tarefas como escritas seria em grande parte reprovar o que já está provado. Também houve dois
-> _fix-forward_ reais no caminho (CRDs do cert-manager fora da varredura; secret efêmero no CI), que
-> eram exatamente o tipo de coisa que ela pretendia capturar.
+> **Ultrapassada pelos fatos e então reduzida.** A proposta original (5 capacidades, 40 tarefas) foi
+> escrita quando a esteira só tinha validação local — mas ao aplicar as mudanças anteriores ela
+> **rodou de verdade** e ficou verde. As 3 capacidades de execução (`live-pipeline-execution`,
+> `ghcr-publication-verification`, `ephemeral-deploy-drill-validation`) foram **provadas ao vivo**
+> (5 workflows verdes em `434a094`, imagens no GHCR, _drill_ de rollback) e a proposta foi **reduzida**
+> às 2 lacunas reais que sobraram — o registro datado e a postura de secrets — e aplicada. Os
+> _fix-forward_ achados no caminho (CRDs do cert-manager, incidente 500 do GitHub, crase-em-heredoc,
+> `jq`-no-`--show`, `CLUSTER_ID` do KRaft) estão catalogados no registro.
 
 ---
 
@@ -578,8 +579,8 @@ validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue con
 | ✅ harden-security-credentials _(pós-1.0.0)_ | 7, 12, 15, 16 |
 | ✅ fix-microservices-gaps _(pós-1.0.0)_ | 10, 15, 16 |
 | ✅ harden-cicd-supply-chain _(pós-1.0.0)_ | 16, 17 + harden-security-credentials ¹ |
-| 📋 k8s-production-robustness _(pós-1.0.0)_ | 16, 17 |
-| 📋 validate-pipeline-live _(pós-1.0.0)_ | 16, 17 |
+| ✅ k8s-production-robustness _(pós-1.0.0)_ | 16, 17 |
+| ✅ validate-pipeline-live _(pós-1.0.0)_ | 16, 17 |
 
 > ¹ Dependência **descoberta na aplicação**, não prevista na proposta: como o
 > `harden-security-credentials` removeu o `k8s/secret.yaml` versionado, o pull secret do GHCR teve de
@@ -589,7 +590,7 @@ validada localmente), fechando a lacuna entre "sintaxe validada" e "entregue con
 
 ## 📚 Referências
 
-- Especificações completas: [`openspec/changes/`](../openspec/changes/)
+- Especificações completas (arquivadas): [`openspec/changes/archive/`](../openspec/changes/archive/) · capabilities vigentes: [`openspec/specs/`](../openspec/specs/)
 - Histórico de versões planejadas: [`CHANGELOG.md`](./CHANGELOG.md)
 - Visão geral do projeto: [`README.md`](./README.md)
 

@@ -9,7 +9,7 @@
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-em%20desenvolvimento-orange.svg)](docs/ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-1.0.0%20%C2%B7%20endurecido-brightgreen.svg)](docs/ROADMAP.md)
 
 </div>
 
@@ -25,6 +25,7 @@
 - [Estrutura do projeto](#-estrutura-do-projeto)
 - [Começando](#-começando)
 - [Documentação da API](#-documentação-da-api)
+- [Segurança](#-segurança)
 - [Testes](#-testes)
 - [Roadmap](#-roadmap)
 - [Fluxo de desenvolvimento (OpenSpec)](#-fluxo-de-desenvolvimento-openspec)
@@ -237,8 +238,12 @@ energyhub/
 │   │   └── financial/  audit/  notifications/  reports/
 │   ├── tests/                 #    conftest.py · test_base_entity.py
 │   └── pyproject.toml  poetry.lock
-├── backend/  database/  docker/  scripts/
-├── docker-compose.yml         # PostgreSQL 16
+├── services/                  # 5 microsserviços (Fase 15): auth/client/contract/financial/audit
+├── k8s/                       # orquestração (Fase 16 + endurecida): base/ + overlays/{dev,prod} + secrets/ + cert-manager/
+├── .github/workflows/         # 5 workflows CI/CD (Fase 17): build · test · docker · deploy · ci-cd
+├── traefik/  grafana/  prometheus/   # gateway + observabilidade
+├── docker-compose.yml         # stack completa: API + 5 microsserviços + infra + observabilidade
+├── docs/  scripts/            # documentação e utilitários
 ├── LICENSE                    # MIT
 └── README.md                  # 👈 você está aqui
 ```
@@ -286,16 +291,29 @@ src/energyhub/<módulo>/
 ### 1. Clonar o repositório
 
 ```bash
-git clone https://github.com/Matheus-Siquara/energyhub.git
+git clone https://github.com/SiquaraDev/energyhub.git
 cd energyhub
 ```
 
-### 2. Subir a stack completa com um comando (Fase 14)
+### 2. Configurar os segredos (`.env`)
 
-`docker compose up -d` constrói a imagem da API (pelo `Dockerfile`) e sobe **tudo** — API +
-PostgreSQL, Redis, RabbitMQ, Kafka+Zookeeper, Elasticsearch, Prometheus, Grafana e Alertmanager —
-numa rede compartilhada, com health checks e ordem de inicialização (a API só inicia depois das
-dependências saudáveis):
+Desde o endurecimento de segurança, o `docker-compose.yml` **não embute credencial nenhuma** — ele
+lê tudo do `.env` com expansão _fail-fast_ (`${VAR:?…}`), então sobe **antes** de criar o `.env`
+aborta na hora. Copie o exemplo e preencha:
+
+```bash
+cp .env.example .env
+# edite .env: SECRET_KEY, POSTGRES_PASSWORD, RABBITMQ_PASSWORD, GRAFANA_ADMIN_USER/PASSWORD,
+# INTERNAL_API_KEY, ADMIN_PASSWORD (valores placeholder são rejeitados pela guarda de produção)
+```
+
+### 3. Subir a stack completa com um comando (Fase 14)
+
+`docker compose up -d` constrói a imagem da API (pelo `Dockerfile`) e sobe **a stack completa** — API
++ os **5 microsserviços** (auth/client/contract/financial/audit) + **Consul** (discovery) + **Traefik**
+(gateway) + PostgreSQL, Redis, RabbitMQ, Kafka+Zookeeper, Elasticsearch, Prometheus, Grafana e
+Alertmanager — numa rede compartilhada, com health checks e ordem de inicialização (a API só inicia
+depois das dependências saudáveis):
 
 ```bash
 docker compose up -d                                    # constrói a API + sobe a stack toda
@@ -303,21 +321,23 @@ docker compose ps                                       # todos "Up (healthy)"
 curl -s http://localhost:8000/health                    # {"status":"healthy"}
 ```
 
-No **primeiro boot** com o banco vazio, aplique as migrações (o admin é semeado por elas):
+No **primeiro boot** com o banco vazio, aplique as migrações (o admin é semeado por elas, a partir do
+`ADMIN_PASSWORD`/`ADMIN_PASSWORD_HASH` do `.env`):
 
 ```bash
 docker compose exec energyhub-api alembic upgrade head
 ```
 
 Portas: API **:8000** · Postgres **:5432** · Redis **:6379** · RabbitMQ **:5672** (UI **:15672**) ·
-Kafka **:9092** · Elasticsearch **:9200** · Prometheus **:9090** · Grafana **:3000** (`admin`/`admin`
-— _placeholder_) · Alertmanager **:9093**. O Prometheus scrapeia a API por nome de serviço
-(`energyhub-api:8000`).
+Kafka **:9092** · Elasticsearch **:9200** · Prometheus **:9090** · Grafana **:3000** (credenciais via
+`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` do `.env` — sem default `admin/admin`) · Alertmanager
+**:9093**. O Prometheus scrapeia a API por nome de serviço (`energyhub-api:8000`).
 
-> ⚠️ As credenciais e o `SECRET_KEY` no `docker-compose.yml` são **placeholders de desenvolvimento**
-> — rotacionar e externalizar (`.env` / secrets manager) antes de produção.
+> 🔐 O `docker-compose.yml` **não contém credenciais** — todas vêm do `.env` (gitignored) e o Compose
+> se recusa a subir sem elas. Para produção, veja a seção [Segurança](#-segurança) e o
+> [runbook de segurança](docs/runbook-security.md).
 
-### 3. Desenvolvimento local (alternativa, sem containerizar a API)
+### 4. Desenvolvimento local (alternativa, sem containerizar a API)
 
 Para iterar na aplicação com _hot reload_, rode só a infra pelo compose e a API no host (o projeto
 Python usa _layout src_ e vive na subpasta `energyhub/`):
@@ -333,21 +353,23 @@ curl http://localhost:8000/           # {"message": "EnergyHub API"}
 curl http://localhost:8000/health     # {"status": "healthy"}
 ```
 
-### 4. Migrações do banco _(Fases 4, 7 e 9 ✅)_
+### 5. Migrações do banco _(Fases 4, 7 e 9 ✅)_
 
 ```bash
 cd energyhub
-poetry run alembic upgrade head       # aplica as 10 migrações (15 tabelas + índices + constraints + seed + permissões)
-poetry run alembic current            # revisão atual (head = 0010)
+poetry run alembic upgrade head       # aplica as 11 migrações (15 tabelas + índices + constraints + seed + permissões + rotação)
+poetry run alembic current            # revisão atual (head = 0011)
 poetry run alembic downgrade base     # reverte tudo
 ```
 
-O _seed_ cria um usuário **`admin`** (papel `ADMIN`, com **todas** as permissões) com senha de
-_bootstrap_ **`ChangeMe123!`** — **rotacione antes de qualquer uso real** (junto com o `SECRET_KEY`).
+O _seed_ cria um usuário **`admin`** (papel `ADMIN`, com **todas** as permissões). Desde o
+endurecimento de segurança, **não há senha commitada**: a senha do admin vem do env de deploy
+(`ADMIN_PASSWORD` ou `ADMIN_PASSWORD_HASH`); se nenhum estiver definido, o admin **não é semeado**.
+Fora de `development`, a migração `0011` marca a conta para **rotação obrigatória** no primeiro uso.
 No Windows + Docker Desktop, se o driver não conectar do host, aplique o SQL dentro do container:
 `poetry run alembic upgrade head --sql | docker compose exec -T postgres psql -U energyhub -d energyhub`.
 
-### 5. Qualidade de código
+### 6. Qualidade de código
 
 ```bash
 poetry run black .        # formatação
@@ -372,12 +394,31 @@ DTOs com descrições e exemplos. Os erros são **padronizados** (`ErrorResponse
 **[`docs/API_ERRORS.md`](docs/API_ERRORS.md)**, e há exemplos `curl` em
 **[`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md)**.
 
-**Autenticação _(Fase 7 ✅)_:** faça login em `POST /api/v1/auth/login` (ex.: `admin` /
-`ChangeMe123!`) e envie o token retornado como `Authorization: Bearer <token>` nas rotas protegidas.
-Sem token → **401**; token válido sem a permissão exigida pelo endpoint → **403**. O botão
-**Authorize** do Swagger (`/docs`) usa o esquema `bearerAuth`.
+**Autenticação _(Fase 7 ✅)_:** faça login em `POST /api/v1/auth/login` com o usuário `admin` e a senha
+que você configurou em `ADMIN_PASSWORD` (o `.env`), e envie o token retornado como
+`Authorization: Bearer <token>` nas rotas protegidas. Sem token → **401**; token válido sem a
+permissão exigida pelo endpoint → **403**. O botão **Authorize** do Swagger (`/docs`) usa o esquema
+`bearerAuth`.
 
 ---
+
+## 🔐 Segurança
+
+A plataforma passou por um ciclo de **endurecimento pós-`1.0.0`** (5 changes OpenSpec, todas aplicadas).
+Resumo do que está em vigor — detalhes operacionais no **[runbook de segurança](docs/runbook-security.md)**:
+
+- **Sem credencial versionada.** Nem o `docker-compose.yml` nem os manifestos `k8s/` embutem segredo.
+  O Compose lê tudo do `.env` (gitignored, _fail-fast_ `${VAR:?…}`); no k8s o `Secret` é resolvido
+  **dentro do cluster** por **SealedSecret/ExternalSecret** ([`k8s/secrets/`](k8s/secrets/README.md)),
+  nunca em texto puro.
+- **Guarda de produção.** Com `ENVIRONMENT=production`, o boot **aborta** diante de credencial vazia
+  ou placeholder (`security_guard.py` no monólito e em cada microsserviço) — impossível subir prod com
+  `ChangeMe123!`/`admin`.
+- **Borda endurecida.** TLS na borda via **cert-manager** + Ingress; **NetworkPolicies** _default-deny_
+  + _allow_ de menor privilégio; dashboard do Traefik e UI do Consul fechados.
+- **Supply chain do CI/CD.** Todas as _actions_ fixadas por **SHA** (+ Dependabot), **branch protection**
+  no `master` exigindo `build`/`test`, imagens com **provenance/SBOM** e _pull_ autenticado do GHCR.
+- **Auth & RBAC** (Fase 7): login JWT, permissões por endpoint (401/403), senha **bcrypt** nunca exposta.
 
 ## 🧪 Testes
 
@@ -466,7 +507,7 @@ Isso mantém escopo, design e requisitos versionados e revisáveis **antes** de 
 
 Distribuído sob a licença **MIT**. Veja [`LICENSE`](LICENSE) para mais informações.
 
-Copyright © 2026 Matheus-Siquara.
+Copyright © 2026 SiquaraDev.
 
 ---
 

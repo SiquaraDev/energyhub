@@ -20,7 +20,26 @@ funcionalidades existentes), **Corrigido** (correções), **Removido**, **Descon
 
 ## [Não lançado]
 
-Estado atual do repositório (fora dos marcos versionados abaixo):
+Estado atual do repositório (fora dos marcos versionados abaixo).
+
+### 🔐 Endurecimento pós-`1.0.0` (5 changes OpenSpec — todas aplicadas e arquivadas)
+
+Após o marco `1.0.0`, um ciclo de endurecimento preparou a plataforma para uso não-local. Ver a
+[Etapa 7 do ROADMAP](./ROADMAP.md#etapa-7) e o [runbook de segurança](./runbook-security.md).
+
+#### Segurança
+- **Sem credencial versionada** — nem `docker-compose.yml` (lê do `.env`, _fail-fast_ `${VAR:?…}`) nem os manifestos `k8s/` embutem segredo; o `energyhub-secret` é resolvido no cluster por **SealedSecret/ExternalSecret**. **Guarda de produção** aborta o boot diante de credencial placeholder/vazia (`security_guard.py` no monólito e em cada microsserviço). **TLS de borda** via cert-manager + Ingress; **NetworkPolicies** _default-deny_ + _allow_. Senha do admin não commitada (via `ADMIN_PASSWORD`/`ADMIN_PASSWORD_HASH`). _(harden-security-credentials)_
+- **Supply chain do CI/CD** — as 29 `uses:` fixadas por **commit SHA** (+ Dependabot; zero Node 20), **branch protection** no `master` (exige `build`/`test`), imagens com **provenance/SBOM**, `permissions` de menor privilégio, `concurrency`, e _pull_ autenticado do GHCR (`ServiceAccount` + `ghcr-pull-secret`). _(harden-cicd-supply-chain)_
+
+#### Alterado
+- **k8s migrado para Kustomize** — manifestos sob `k8s/base/` + _overlays_ `dev`/`prod`; deploy passa a `kubectl apply -k k8s/overlays/<env>` (sem `kubectl set image`). **Kafka → `StatefulSet` KRaft** (sem Zookeeper); **Postgres/Redis/RabbitMQ → PVCs** (dado sobrevive a restart/reschedule). _(k8s-production-robustness)_
+- **Consul `service_id` único por réplica** (`HOSTNAME`/`uuid4`) + _deregister_ da própria instância; `RABBITMQ_URL` adicionado a `contract`/`financial`. _(fix-microservices-gaps)_
+
+#### Corrigido
+- Resolvidas as **duas limitações** registradas nas Fases 15/16: o `service_id` não-único no Consul (sumia com o serviço no scale-in) e a **trilha de auditoria não auto-populada** — agora um `AuditEventProducer` publica na fila `audit` em **todo** create/update/delete, e um bug pré-existente (o `AuditConsumer` nunca ficava assinado) foi corrigido. _(fix-microservices-gaps)_
+
+#### Validação
+- **Registro datado** da esteira verde ao vivo — os 5 workflows verdes nos runners, publicação no GHCR, _drill_ de rollback no kind e o catálogo de correções _fix-forward_ — em [`docs/pipeline-validation.md`](./pipeline-validation.md); postura de secrets opcionais documentada. _(validate-pipeline-live)_
 
 ### Adicionado
 - Especificações OpenSpec completas para as **18 fases** do projeto (`fase-0` a `fase-17`), cada uma com `proposal.md`, `design.md`, `tasks.md` e _specs_ de capacidades. Baseline OpenSpec (`openspec/specs/`) com **115 capacidades** (7 da Fase 0 + 7 da Fase 2 + 12 da Fase 3 + 5 da Fase 4 + 7 da Fase 5 + 7 da Fase 6 + 7 da Fase 7 + 6 da Fase 8 + 5 da Fase 9 + 6 da Fase 10 + 7 da Fase 11 + 6 da Fase 12 + 7 da Fase 13 + 7 da Fase 14 + 6 da Fase 15 + 6 da Fase 16 + 7 da Fase 17).
@@ -38,7 +57,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 - **Suíte de testes e gate de cobertura (Fase 13):** toolchain `pytest`/`pytest-asyncio`/`pytest-mock`/`pytest-cov`/`testcontainers` (grupo `dev`) e `[tool.pytest.ini_options]` com gate embutido (`--cov=energyhub --cov-fail-under=80`); testes unitários dos 15 serviços com colaboradores `AsyncMock`, testes de componente dos 13 routers via `TestClient`, e integração (repositórios via `PostgresContainer` + API via `TestClient` com JWT real); `docker-compose.test.yml` (PG/Redis/RabbitMQ em 5433/6380/5673); cobertura **87% in-container** (85% no host, com a integração pulada).
 - **Containerização e orquestração (Fase 14):** `Dockerfile` multi-stage (build com Poetry `--only main` → runtime `python:3.12-slim`, não-root `appuser`, `EXPOSE 8000`, `CMD uvicorn`) + `.dockerignore`; `docker-compose.yml` estendido com o serviço **`energyhub-api`** e toda a infra numa rede bridge `energyhub-network`, `restart: unless-stopped`, **startup health-gated** (`depends_on: service_healthy`) e config 12-factor por variável de ambiente (URLs por nome de serviço); volumes nomeados para todos os serviços com estado + AOF do Redis; Prometheus passa a scrapear `energyhub-api:8000`. A stack sobe com **um comando** (`docker compose up -d`).
 - **Microsserviços + gateway (Fase 15, ⚠️ _breaking_):** monólito decomposto em **5 serviços FastAPI independentes** (`services/auth|client|contract|financial|audit-service/`, portas 8001–8005), cada um com projeto/config/Dockerfile próprios, `mapping.py` enxuto e **banco dedicado**; **Consul** para service discovery (registro + health check + resolução por nome); clientes **`httpx`** (`AuthClient`/`ClientClient`/`ContractClient`) substituindo as chamadas in-process, com **resiliência** (`tenacity`: timeout + retry/backoff + fallback); **Traefik** roteando por prefixo de caminho via catálogo do Consul, com middlewares de borda (auth/logging/rate limit); decomposição documentada em `docs/bounded-contexts.md`.
-- **Orquestração com Kubernetes (Fase 16):** árvore `k8s/` (40 manifestos) declarando toda a plataforma — `Namespace` `energyhub`, `Deployment`+`Service`+`HPA` por serviço (réplicas, _requests/limits_, _probes_ `/health`), `ConfigMap`s/`Secret`, `LoadBalancer` (Traefik) + `Ingress` (NGINX) na borda, e backends stateful in-cluster (Postgres/Redis/RabbitMQ/Kafka/Zookeeper). Autoscaling por CPU/memória (2–5 réplicas) via **Metrics Server**. Validado em **minikube** (login→cliente→contrato pelo gateway, HPA escalando 2↔5). Guia em `k8s/README.md`; detalhes em `docs/ARCHITECTURE.md` (§21).
+- **Orquestração com Kubernetes (Fase 16):** árvore `k8s/` declarando toda a plataforma — `Namespace` `energyhub`, `Deployment`+`Service`+`HPA` por serviço (réplicas, _requests/limits_, _probes_ `/health`), `ConfigMap`s/`Secret`, `LoadBalancer` (Traefik) + `Ingress` (NGINX) na borda, e backends stateful in-cluster. Autoscaling por CPU/memória (2–5 réplicas) via **Metrics Server**. Validado em **minikube** (login→cliente→contrato pelo gateway, HPA escalando 2↔5). Guia em `k8s/README.md`; detalhes em `docs/ARCHITECTURE.md` (§21). _(A camada k8s foi desde então migrada para **Kustomize** base/overlays, **Kafka KRaft** e **PVCs** — ver "Endurecimento pós-`1.0.0`" acima.)_
 - **Automação CI/CD com GitHub Actions (Fase 17, `1.0.0` 🎉):** 5 workflows em `.github/workflows/` — `build.yml` (build + `pytest` + cobertura→Codecov), `test.yml` (Postgres/Redis _service containers_ + migração Alembic + unit/integração), `docker.yml` (matrix Buildx → 5 imagens no **GHCR**, tags `latest`+SHA), `deploy.yml` (deploy num cluster real via `KUBE_CONFIG` + rollout + **rollback**+Slack, pulado sem o secret) e `ci-cd.yml` (esteira `build→push→deploy` com validação de deploy grátis em **kind efêmero** + _drill_ de rollback). Validado localmente: `actionlint` limpo, `pytest` 83.9% (gate 80%), e revisão adversarial multi-agente. Documentado em `docs/ci-cd.md`.
 - Configuração do Poetry (`pyproject.toml`, formato PEP 621) com FastAPI, Uvicorn, SQLAlchemy 2.0 e asyncpg, além das ferramentas de qualidade (black, isort, flake8, mypy, ruff).
 - Licença MIT e documentação de projeto (`README.md`, `ROADMAP.md`, este `CHANGELOG.md`).
@@ -48,7 +67,7 @@ Estado atual do repositório (fora dos marcos versionados abaixo):
 ## [1.0.0] — 2026-07-13 · 🎉 Lançado · _Fase 17 · CI/CD_
 
 Automação de build, testes, publicação de imagens e _deploy_ com _rollback_ via **GitHub Actions** —
-a plataforma torna-se **continuamente entregue**. Marco final do roadmap. Guia em [`docs/ci-cd.md`](../ci-cd.md).
+a plataforma torna-se **continuamente entregue**. Marco final do roadmap. Guia em [`docs/ci-cd.md`](./ci-cd.md).
 
 ### Adicionado
 - **`build.yml`** — checkout, Python 3.12 + Poetry, `poetry build`, `pytest` com cobertura e upload ao **Codecov** (`fail_ci_if_error: false` — não quebra sem token).
@@ -56,7 +75,7 @@ a plataforma torna-se **continuamente entregue**. Marco final do roadmap. Guia e
 - **`docker.yml`** — _matrix_ Buildx → **1 imagem por serviço** (5 serviços; o gateway é o Traefik, não construído), publicadas no **GHCR** via `docker/metadata-action` com tags **`:latest`** e **`:SHA`** e cache de camadas.
 - **`deploy.yml`** — deploy num cluster **real**: `kubectl` a partir do _secret_ `KUBE_CONFIG` (job **pulado** sem ele), `apply` de `k8s/` (namespace primeiro), **pin da imagem por SHA**, `rollout status`/`wait`, **rollback** (`rollout undo`) e notificação Slack em falha.
 - **`ci-cd.yml`** — esteira encadeada por `needs`: `build-and-test → build-and-push → deploy`, com o deploy validado **grátis num cluster kind efêmero** (carrega as imagens, aplica `k8s/`, aguarda o subconjunto core e roda um **drill de rollback** com imagem quebrada).
-- Documentação do pipeline, secrets e fluxo de deploy/rollback em [`docs/ci-cd.md`](../ci-cd.md).
+- Documentação do pipeline, secrets e fluxo de deploy/rollback em [`docs/ci-cd.md`](./ci-cd.md).
 
 ### Corrigido (achados da revisão adversarial)
 - Migração Alembic **antes** da integração (o monólito cria o schema por migração, não no boot) — sem ela a integração falhava contra um Postgres vazio.
@@ -432,4 +451,4 @@ Fundação de documentação — **sem código** (apenas artefatos de design).
 
 ---
 
-[Não lançado]: https://github.com/Matheus-Siquara/energyhub/compare/main...HEAD
+[Não lançado]: https://github.com/SiquaraDev/energyhub/compare/v1.0.0...HEAD

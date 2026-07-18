@@ -21,8 +21,15 @@ kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/downloa
 helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
 helm install sealed-secrets sealed-secrets/sealed-secrets \
   --namespace kube-system \
-  --version 2.16.1        # chart que empacota o controlador v0.27.1
+  --version 2.16.1 \
+  --set fullnameOverride=sealed-secrets-controller   # o `kubeseal`/seal-secrets.sh procura o
+                                                     # controlador pelo nome `sealed-secrets-controller`
 ```
+
+> ⚠️ **Nome do controlador.** Por padrão o chart nomeia o controlador como `sealed-secrets` (nome do
+> release), mas o `kubeseal` e o [`seal-secrets.sh`](./seal-secrets.sh) usam
+> `--controller-name sealed-secrets-controller`. O `--set fullnameOverride=sealed-secrets-controller`
+> acima alinha os dois; sem ele, o `kubeseal` não encontra o serviço.
 
 ## Instalar o CLI `kubeseal` (v0.27.1)
 
@@ -38,7 +45,10 @@ kubeseal --version   # deve reportar 0.27.1
 ## Verificar
 
 ```bash
+# Instalação pelo controller.yaml (raw):
 kubectl get pods -n kube-system -l name=sealed-secrets-controller
+# — ou, se instalou via Helm (com o fullnameOverride acima):
+kubectl get pods -n kube-system -l app.kubernetes.io/name=sealed-secrets
 # Após pronto, k8s/secrets/seal-secrets.sh consegue buscar o cert público e selar o Secret.
 ```
 

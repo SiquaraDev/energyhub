@@ -149,7 +149,7 @@ O 1º usuário não pode nascer pela API protegida e as tabelas só existem apó
 
 ```bash
 kubectl exec -n energyhub deploy/postgres -- \
-  psql -U energyhub -d authdb -c "<INSERT do admin/roles — ver docs/ARCHITECTURE.md §20>"
+  psql -U energyhub -d authdb -c "<INSERT do admin/roles — ver docs/ARCHITECTURE.md §9.4 (Seed e verificação)>"
 ```
 
 ---
@@ -212,5 +212,8 @@ os PVCs criados por `volumeClaimTemplates`; limpe-os à parte se quiser um teard
 - Os backends já são **PVC-backed** (Postgres/Redis/RabbitMQ + Kafka em `volumeClaimTemplate`) — o
   dado sobrevive a restart/reschedule. Em produção, alternativamente troque para managed stores
   externos ajustando só as URLs no `Secret`, e defina uma `StorageClass` explícita no overlay `prod`.
-- Habilitar **TLS** na borda (cert-manager) e fechar o dashboard do Traefik / UI do Consul.
+- **TLS de borda já habilitado** via cert-manager + Ingress (Secret `energyhub-tls`, `force-ssl-redirect`);
+  o **dashboard do Traefik está fechado** (`api.insecure: false` + basic-auth no entrypoint interno) e a
+  **UI do Consul removida** (sem `-ui`). Em produção real, troque a CA interna auto-assinada por um issuer
+  confiável (Let's Encrypt / CA corporativa).
 - Fixar **tags de imagem** explícitas (evitar `latest` em ambientes compartilhados) — Fase 17 (CI/CD).

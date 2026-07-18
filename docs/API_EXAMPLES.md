@@ -17,7 +17,7 @@ Troca `username`/`password` por um token JWT. **Rota pública** (não exige toke
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "ChangeMe123!"}'
+  -d '{"username": "admin", "password": "<sua-senha-admin>"}'
 ```
 
 **Resposta `200 OK`:**
@@ -37,8 +37,10 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 }
 ```
 
-> ⚠️ O usuário `admin` e a senha `ChangeMe123!` são **credenciais de bootstrap** — rotacione-as
-> (e o `SECRET_KEY`) antes de qualquer uso real. Credenciais inválidas retornam **401**
+> ⚠️ A conta `admin` é **provisionada no deploy** a partir de `ADMIN_PASSWORD` (ou
+> `ADMIN_PASSWORD_HASH`) — não há senha commitada; se nenhuma estiver definida, o admin **não é
+> semeado**. Use no login a senha que você configurou. `ChangeMe123!` é um **placeholder rejeitado**
+> pela guarda de produção — não funciona em `production`. Credenciais inválidas retornam **401**
 > (`error_code: INVALID_CREDENTIALS`).
 
 Guarde o token numa variável de ambiente para reutilizar nos próximos comandos:
@@ -46,7 +48,7 @@ Guarde o token numa variável de ambiente para reutilizar nos próximos comandos
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "ChangeMe123!"}' | jq -r .access_token)
+  -d '{"username": "admin", "password": "<sua-senha-admin>"}' | jq -r .access_token)
 ```
 
 ---
@@ -90,8 +92,8 @@ curl -X POST http://localhost:8000/api/v1/clients \
 }
 ```
 
-> Erros possíveis: **400** (validação de schema — ver `ValidationErrorResponse`), **409**
-> (`CLIENT_ALREADY_EXISTS` — CNPJ já cadastrado), **422** (`INVALID_CNPJ`).
+> Erros possíveis: **400** (validação de schema — ver `ValidationErrorResponse`; um CNPJ inválido é
+> pego aqui, pelo `field_validator` do DTO), **409** (`CLIENT_ALREADY_EXISTS` — CNPJ já cadastrado).
 
 ### 2.2 Listar clientes (paginado) — `GET /api/v1/clients`
 

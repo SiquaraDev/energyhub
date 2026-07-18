@@ -38,8 +38,10 @@ seus dados e comportamento. Nenhum módulo fica sem dono nem é dividido entre d
   cliente (`client_id`) e o usuário atuante. Publica eventos de contrato no Kafka.
 - **Financial** — faturas e pagamentos. Uma fatura referencia um cliente (`client_id`) e nasce de
   contratos. Publica eventos financeiros no Kafka.
-- **Audit** — trilha de auditoria **append-only**. **Consumidor de eventos** (RabbitMQ) — sem
-  dependência síncrona de nenhum contexto; registra o que os outros publicam.
+- **Audit** — trilha de auditoria **append-only**. **Consumidor de eventos** (RabbitMQ): os
+  *registros* chegam pelo barramento (sem upstream síncrono para gravar). Mas a **API REST** do
+  audit-service autentica via `auth-service` (`AuthClient` → `/internal/users/by-username`), então
+  tem **dependência síncrona de Auth**.
 - **Negotiations** (futuro) — negociações e transações de energia sobre contratos.
 - **Notifications** (futuro) — notificações a usuários; **consumidor de eventos**.
 - **Reports** (futuro) — relatórios; agrega dados de vários contextos (candidato a serviço de
@@ -67,8 +69,8 @@ ordem de extração bem definida e evita dependências circulares entre serviço
                            Financial→Clients   Negotiations→Contracts
 
    ┌─────────┐   ┌───────────────┐
-   │  Audit  │   │ Notifications │   (independentes — consumidores de eventos, sem upstream síncrono)
-   └─────────┘   └───────────────┘
+   │  Audit  │   │ Notifications │   Audit→Auth (API REST via AuthClient); os REGISTROS chegam por evento.
+   └─────────┘   └───────────────┘   Notifications: consumidor de eventos, sem upstream síncrono.
 ```
 
 **Dependências síncronas (via cliente HTTP), por contexto:**
@@ -80,13 +82,14 @@ ordem de extração bem definida e evita dependências circulares entre serviço
 | **Contracts** | Auth, Clients | `AuthClient`, `ClientClient` |
 | **Financial** | Auth, Clients, Contracts | `AuthClient`, `ClientClient`, `ContractClient` |
 | **Negotiations** _(futuro)_ | Auth, Contracts | `AuthClient`, `ContractClient` |
-| **Audit** | — (consome eventos) | nenhum |
+| **Audit** | Auth (API REST); registros por evento | `AuthClient` |
 | **Notifications** _(futuro)_ | — (consome eventos) | nenhum |
 | **Reports** _(futuro)_ | todos (agregação) | vários |
 
 > **Invariante:** um serviço só carrega clientes HTTP para contextos **upstream** dele — nunca para
-> downstream. Isso preserva a direção declarada e mantém o grafo acíclico. Auth e Audit não têm
-> upstream síncrono (Audit consome eventos do barramento RabbitMQ/Kafka).
+> downstream. Isso preserva a direção declarada e mantém o grafo acíclico. **Auth** não tem upstream
+> síncrono; **Audit** recebe seus registros pelo barramento (RabbitMQ/Kafka) mas depende de **Auth**
+> para autenticar a própria API REST (`AuthClient`).
 
 ---
 
@@ -99,7 +102,7 @@ _real_ (não de um _stub_), e a primeira extração valide toda a pilha (discove
 2. **Clients** (→ Auth) — introduz o `AuthClient` e a primeira chamada de rede entre serviços.
 3. **Contracts** (→ Auth, Clients) — `AuthClient` + `ClientClient`.
 4. **Financial** (→ Auth, Clients, Contracts) — `AuthClient` + `ClientClient` + `ContractClient`.
-5. **Audit** (independente) — aponta para o barramento de eventos existente; consome sem upstream síncrono.
+5. **Audit** (→ Auth) — `AuthClient` para autenticar a API REST; os registros de auditoria chegam pelo barramento de eventos.
 
 ---
 
